@@ -497,6 +497,131 @@ gantt
 
 ---
 
+## 13. Input Datasets & Benchmarking Strategy
+
+To validate and benchmark the performance of this platform end-to-end (from Kafka ingestion to Flink Data Vault transformations, StarRocks OLAP queries, Redis Feature Store, and Vector DB serving), the platform utilizes industry-standard benchmark datasets and an automated streaming producer suite.
+
+### 13.1 Recommended Industry Benchmark Datasets
+
+1. **Alibaba / Taobao User Behavior Dataset (High-Throughput Real-Time Streaming Benchmark):**
+   * **Scale:** 100,150,807 user interaction events (~3.5 GB compressed, 10 GB raw CSV).
+   * **Target SLA Test:** 10,000 to 100,000 events/sec streaming through Kafka, Flink SQL, and Redis Feature Store.
+   * **Direct Download Command:**
+     ```bash
+     wget https://ali-rec-datasets.oss-cn-beijing.aliyuncs.com/UserBehavior.csv.zip
+     unzip UserBehavior.csv.zip
+     ```
+
+2. **H&M Personalized Fashion Recommendations Dataset (Data Vault 2.0 & Vector Embeddings):**
+   * **Scale:** 31.7M transactions, 1.3M users, 105k items.
+   * **Dataset Layer Mapping:**
+     * `customers.csv` $\rightarrow$ CDC User updates (`Hub_User`, `Sat_User_Profile`).
+     * `articles.csv` $\rightarrow$ CDC Item Catalog & Text Embeddings (`Hub_Item`, `Sat_Item_Metadata`).
+     * `transactions_train.csv` $\rightarrow$ Real-Time Interactions (`Link_User_Item_Interaction`, `Sat_Interaction_Context`).
+   * **Kaggle Download Command:**
+     ```bash
+     kaggle competitions download -c h-and-m-personalized-fashion-recommendations
+     ```
+
+3. **Amazon Reviews 2023 Dataset (Multi-Category Metadata & Cold-Start Benchmark):**
+   * Rich user reviews, ratings, and product catalog metadata for cold-start and collaborative filtering benchmarks.
+   * **HuggingFace Download:** `datasets.load_dataset("McAuley-Lab/Amazon-Reviews-2023", "raw_review_Electronics")`
+
+---
+
+### 13.2 Schema Mapping Matrix
+
+| Raw Field | Destination Layer | Target Table / Store | Purpose |
+| :--- | :--- | :--- | :--- |
+| `user_id` | Streaming Data Vault | `vault.hub_user` | Business Key $\rightarrow$ $MD5(\text{user\_id})$ |
+| `item_id` | Streaming Data Vault | `vault.hub_item` | Business Key $\rightarrow$ $MD5(\text{item\_id})$ |
+| `user_id` + `item_id` + `timestamp` | Streaming Data Vault | `vault.link_user_item_interaction` | Interaction Relationship |
+| `behavior_type` + `dwell_time` | Streaming Data Vault | `vault.sat_interaction_context` | Context & Temporal Attributes |
+| `user_id` + recent `item_id`s | Online Feature Store | **Redis Key:** `user:last_5_clicked` | Low-latency RecSys context (<5ms SLA) |
+| `item_id` + `detail_desc` | Vector Database | **Qdrant / Milvus Collection** | ANN Candidate Retrieval |
+
+---
+
+### 13.3 Automated Kafka Streaming Benchmark Script (`benchmark_producer.py`)
+
+A high-throughput Python producer script to stream dataset events into Kafka with configurable throughput control and metric reporting:
+
+```python
+import time
+import json
+from confluent_kafka import Producer
+import pandas as pd
+
+KAFKA_BROKER = "localhost:9092"
+CLICKSTREAM_TOPIC = "events.clickstream"
+TARGET_EVENTS_PER_SEC = 10000
+CSV_PATH = "UserBehavior.csv"
+
+producer = Producer({
+    'bootstrap.servers': KAFKA_BROKER,
+    'linger.ms': 10,
+    'batch.num.messages': 5000,
+    'queue.buffering.max.messages': 1000000,
+    'compression.type': 'snappy'
+})
+
+def run_benchmark():
+    print(f"🚀 Starting Kafka Ingestion Benchmark from {CSV_PATH}...")
+    colnames = ['user_id', 'item_id', 'category_id', 'behavior', 'timestamp']
+    total_sent = 0
+    start_time = time.time()
+    last_report_time = time.time()
+    
+    for chunk in pd.read_csv(CSV_PATH, names=colnames, header=None, chunksize=100000):
+        for row in chunk.itertuples():
+            click_payload = {
+                "user_id": str(row.user_id),
+                "item_id": str(row.item_id),
+                "category_id": str(row.category_id),
+                "event_type": row.behavior,
+                "event_timestamp": int(row.timestamp),
+                "ingest_timestamp": int(time.time() * 1000)
+            }
+            producer.produce(CLICKSTREAM_TOPIC, key=str(row.user_id), value=json.dumps(click_payload))
+            total_sent += 1
+            
+            if total_sent % 1000 == 0:
+                producer.poll(0)
+                elapsed = time.time() - start_time
+                expected = total_sent / TARGET_EVENTS_PER_SEC
+                if elapsed < expected:
+                    time.sleep(expected - elapsed)
+                    
+            if time.time() - last_report_time >= 5.0:
+                print(f"[BENCHMARK] Sent: {total_sent:,} events | Speed: {total_sent / (time.time() - start_time):,.2f} msg/sec")
+                last_report_time = time.time()
+
+    producer.flush()
+    print(f"✅ BENCHMARK COMPLETE: {total_sent:,} events in {time.time() - start_time:.2f}s")
+
+if __name__ == "__main__":
+    run_benchmark()
+```
+
+---
+
+### 13.4 End-to-End System Performance Verification
+
+During benchmark execution, key performance indicators (KPIs) are evaluated across all layers:
+
+1. **Ingestion & Streaming Layer (Kafka & Flink):**
+   * Target Throughput: $\ge 10,000\text{ msg/sec}$
+   * Flink Checkpoint Duration: $< 2\text{ seconds}$
+2. **Storage Layer (Apache Iceberg & Nessie):**
+   * Write latency & file compaction overhead on Object Storage (S3/MinIO).
+   * Data Vault deduplication correctness ($MD5$ HashDiff verification).
+3. **Serving & Feature Store Layer:**
+   * **Redis Read SLA:** $< 5\text{ms}$ (p99).
+   * **StarRocks OLAP Query SLA:** $< 100\text{ms}$ on PIT aggregate views.
+   * **Recommender Serving API SLA:** $< 50\text{ms}$ (p99 end-to-end response time).
+
+---
+
 > [!IMPORTANT]
 > **Conclusion & Value Proposition:**  
 > This architecture proposal addresses all 4 key data platform challenges:
