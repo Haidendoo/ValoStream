@@ -373,7 +373,7 @@ Automated testing scenarios executed via GitHub Actions prior to merging:
 ## 7. OLAP Serving & Query Acceleration (StarRocks)
 
 ### 7.1 Serving Layer Strategy
-* **Direct Iceberg Integration:** StarRocks connects directly to Apache Nessie Catalog to query Iceberg Parquet files natively without separate ETL steps.
+* **Direct Iceberg Integration via Nessie REST:** StarRocks connects directly to Apache Nessie via the official Iceberg REST Catalog protocol (`iceberg.catalog.type = "rest"` at `http://nessie:19120/iceberg/<branch_name>`) to query Parquet files on object storage without separate ETL steps or proprietary connector dependencies.
 * **Real-Time Materialized Views:** Automatically flattens and aggregates data from Data Vault Satellites & Links into ready-to-use analytical views for BI Dashboards.
 * **Vectorized Execution Engine:** Delivers sub-second query latency (<100ms) over billions of clickstream & transaction records.
 
