@@ -1,4 +1,4 @@
-# 🚀 TECHNICAL PROPOSAL: REAL-TIME DATA MESH PLATFORM WITH STREAMING DATA VAULT 2.0, GIT-LIKE DATAOPS & END-TO-END RECOMMENDER SYSTEM
+# TECHNICAL PROPOSAL: REAL-TIME STREAMING LAKEHOUSE WITH DATA VAULT 2.0, GIT-LIKE DATAOPS & END-TO-END RECOMMENDER SYSTEM
 
 **Author:** ValoStream Engineering Team  
 **Role:** Senior Data & AI Platform Architect  
@@ -20,14 +20,15 @@ As large-scale enterprise systems scale, traditional Data Platforms (built on Ba
 
 ## 2. Proposed Solution
 
-Build a modern **Real-Time Data Mesh Platform** powered by **Streaming Data Vault 2.0** methodology, integrated with the next-generation Lakehouse ecosystem (**Apache Iceberg + Apache Nessie**), **DataOps (CI/CD for Data)** automation via GitHub Actions, and an **End-to-End Real-Time Recommender System** for personalized user serving.
+Build a modern **Real-Time Streaming Lakehouse Platform** powered by **Streaming Data Vault 2.0** methodology, integrated with the next-generation Lakehouse ecosystem (**Apache Iceberg + Apache Nessie**), **DataOps (CI/CD for Data)** automation via GitHub Actions, and an **End-to-End Real-Time Recommender System** for personalized user serving.
 
 ### Key Architecture Stack:
-* **Ingestion & Streaming:** Apache Kafka / Redpanda + Apache Flink / Fluss (Real-time Hash Key $MD5$, HashDiff & Data Vault Transformations).
+* **Ingestion & Streaming:** Apache Kafka + Apache Flink (Real-time Hash Key $MD5$, HashDiff & Data Vault Transformations).
 * **Storage & Governance:** Apache Iceberg + Apache Nessie (Git-like Data Catalog, Zero-Copy Branching).
-* **Serving & Query Acceleration:** StarRocks / Apache Doris (Sub-second vectorized OLAP on PIT/Bridge Views).
-* **Feature Store & Real-Time ML:** Feast / Redis (Online Feature Store) + Iceberg (Offline Feature Store).
-* **Recommender System Engine:** Vector DB (Qdrant/Milvus) + Two-Stage Ranking Engine (Triton / Ray Serve / FastAPI) + Closed-Loop Feedback Stream.
+* **Serving & Query Acceleration:** StarRocks (Sub-second vectorized OLAP on PIT/Bridge Views).
+* **Feature Store & Real-Time ML:** Redis (Online Feature Store) + Iceberg (Offline Feature Store).
+* **Recommender System Engine:** Qdrant (Vector DB) + Two-Stage Ranking Engine (Triton Inference Server) + Closed-Loop Feedback Stream.
+* **Geospatial Analytics & Visualization:** Apache Sedona (Flink Geospatial Engine) + H3 Indexing (Uber Hexagonal Spatial Index) + Deck.gl / Kepler.gl (Sub-second Hexagon Heatmap Visualization).
 * **DataOps & Quality Gate:** GitHub Actions + dbt Core (Automated testing & merging on isolated Nessie branches).
 
 ---
@@ -57,8 +58,8 @@ flowchart TD
 
     %% 2. Ingestion & Streaming Layer
     subgraph INGESTION["⚡ Real-Time Ingestion & Streaming Layer"]
-        KAFKA["<b>Apache Kafka / Redpanda</b><br/>Distributed Event Bus"]:::ingest
-        FLUSS["<b>Apache Flink / Fluss Engine</b><br/>• Real-Time Hash MD5 & HashDiff<br/>• Stream Deduplication & Load Date<br/>• Feature Extraction Stream"]:::ingest
+        KAFKA["<b>Apache Kafka</b><br/>Distributed Event Bus"]:::ingest
+        FLINK["<b>Apache Flink Engine</b><br/>• Real-Time Hash MD5 & HashDiff<br/>• Stream Deduplication & Load Date<br/>• Feature Extraction Stream"]:::ingest
     end
 
     %% 3. Streaming Data Vault 2.0
@@ -82,7 +83,7 @@ flowchart TD
     %% 4. Governance & Versioning
     subgraph GOVERNANCE["🔒 Data Governance & Versioning"]
         NESSIE{"<b>Apache Nessie Server</b><br/>Git-like Catalog Management<br/><i>(Main & Isolation Branches)</i>"}:::lakehouse
-        STORAGE_S3[("<b>Object Storage</b><br/>AWS S3 / MinIO / Ozone")]:::lakehouse
+        STORAGE_S3[("<b>Object Storage</b><br/>MinIO (dev) / AWS S3 (prod)")]:::lakehouse
     end
 
     %% 5. DataOps & CI/CD
@@ -92,16 +93,16 @@ flowchart TD
 
     %% 6. OLAP Serving Layer
     subgraph SERVING["🚀 Serving & OLAP Analytics"]
-        STARROCKS["<b>StarRocks / Apache Doris</b><br/>• Iceberg External Catalog<br/>• Real-Time PIT & Bridge Views<br/>• Sub-Second BI & Analytics"]:::serving
+        STARROCKS["<b>StarRocks</b><br/>• Iceberg External Catalog<br/>• Real-Time PIT & Bridge Views<br/>• Sub-Second BI & Analytics"]:::serving
         BI["<b>BI & Executive Dashboards</b><br/>Metabase / Superset / Tableau"]:::serving
     end
 
     %% 7. Recommender System & Feature Store Layer
     subgraph RECSYS["🤖 Real-Time Recommender System Engine"]
-        FEAT_ONLINE[("<b>Online Feature Store</b><br/>Redis / Dragonfly<br/><i>(Low Latency < 5ms)</i>")]:::recsys
+        FEAT_ONLINE[("<b>Online Feature Store</b><br/>Redis<br/><i>(Low Latency < 5ms)</i>")]:::recsys
         FEAT_OFFLINE[("<b>Offline Feature Store</b><br/>Apache Iceberg<br/><i>(Historical Embeddings)</i>")]:::recsys
-        VECTOR_DB[("<b>Vector DB / ANN Search</b><br/>Qdrant / Milvus / StarRocks Vector<br/><i>(Candidate Retrieval)</i>")]:::recsys
-        MODEL_SERVING["<b>Model Serving Engine</b><br/>Triton / Ray Serve / FastAPI<br/><i>(Two-Stage Ranking & Re-ranking)</i>"]:::recsys
+        VECTOR_DB[("<b>Vector DB / ANN Search</b><br/>Qdrant<br/><i>(Candidate Retrieval)</i>")]:::recsys
+        MODEL_SERVING["<b>Model Serving Engine</b><br/>Triton Inference Server<br/><i>(Two-Stage Ranking & Re-ranking)</i>"]:::recsys
         REC_API["<b>User Recommendation API</b><br/>Gateway Service (< 50ms SLA)"]:::recsys
     end
 
@@ -113,19 +114,19 @@ flowchart TD
     D2 -->|Click Events| KAFKA
     D3 -->|API Payloads| KAFKA
 
-    KAFKA --> FLUSS
-    FLUSS -->|Stream Writes| STORAGE
-    FLUSS -->|Real-Time Features| FEAT_ONLINE
+    KAFKA --> FLINK
+    FLINK -->|Stream Writes| STORAGE
+    FLINK -->|Real-Time Features| FEAT_ONLINE
 
     STORAGE <--->|Catalog Metadata| NESSIE
     STORAGE <---> STORAGE_S3
 
     NESSIE <--->|API Branching / Merge| GHA
-    GHA -->|Validate & Test| STARROCKS
+    GHA -->|"dbt Validate & Test"| STARROCKS
 
     NESSIE <--->|Multi-Branch Catalog| STARROCKS
     STARROCKS -->|Sub-second Queries| BI
-    STARROCKS -->|Batch Feature Generation| FEAT_OFFLINE
+    FLINK -->|Batch Feature Generation| FEAT_OFFLINE
 
     FEAT_OFFLINE -->|Sync Historical Embeddings| VECTOR_DB
     FEAT_ONLINE -->|Real-Time Context| MODEL_SERVING
@@ -133,6 +134,7 @@ flowchart TD
 
     MODEL_SERVING --> REC_API
     REC_API -->|Personalized Recs| USER_APP
+    REC_API -->|"Impression Events (Feedback)"| KAFKA
     USER_APP -->|"User Clicks/Impressions (Feedback Loop)"| D2
 ```
 
@@ -147,7 +149,7 @@ sequenceDiagram
     participant GH as GitHub Actions
     participant NES as Apache Nessie Catalog
     participant FLK as Flink Engine
-    participant STR as StarRocks / Doris
+    participant STR as StarRocks
     participant DBT as dbt Testing Framework
     participant REC as Recommender API
 
@@ -174,11 +176,11 @@ sequenceDiagram
 
     alt ALL TESTS PASSED
         DBT-->>GH: 9. ✅ Tests Passed
-        GH->>NES: 10. Merge `pr_feature_123` -> `main`
-        NES-->>GH: 11. Merge Complete
-        GH->>NES: 12. Delete Branch `pr_feature_123`
-        GH->>REC: 13. Trigger Feature Store Schema Sync
-        GH-->>DE: 14. Auto-Approve & Merge PR
+        GH->>NES: 10. Delete Branch `pr_feature_123` (Discard test data)
+        Note over GH, NES: Nessie branch is a disposable test bed — no data merge.
+        GH->>REC: 11. Trigger Feature Store Schema Sync
+        GH-->>DE: 12. Auto-Approve & Merge PR (promotes code, not data)
+        Note over DE, GH: Production Flink job picks up new code and writes real rows to main.
     else TESTS FAILED
         DBT-->>GH: 9. ❌ Test Failure Detected
         GH->>NES: 10. Delete Branch `pr_feature_123` (Atomic Rollback)
@@ -209,7 +211,7 @@ Data Vault 2.0 is selected as the core storage methodology due to its flexibilit
 
 4. **Point-In-Time (PIT) & Bridge Views:**
    * PIT Tables/Views unify Satellites at any given point in time without complex `LEFT JOIN` chains on historical records.
-   * Accelerates queries for StarRocks/Doris and Feature Store extraction.
+   * Accelerates queries for StarRocks and Feature Store extraction.
 
 ---
 
@@ -257,23 +259,82 @@ CREATE TABLE vault.sat_user_profile (
 ) USING iceberg
 PARTITIONED BY (days(load_date));
 
--- 5. Sat_Interaction_Context Table (Real-Time Clickstream Context)
+-- 5. Sat_Interaction_Context Table (Real-Time Clickstream & Spatial Context)
+-- Modeled as Non-Historized / Transactional Satellite (DV-2: immutable event context, no hash_diff)
 CREATE TABLE vault.sat_interaction_context (
-    hk_interaction_id STRING NOT NULL,
+    hk_interaction_id STRING NOT NULL,  -- Primary Key (immutable interaction key)
     load_date TIMESTAMP NOT NULL,
-    hash_diff STRING NOT NULL,
-    event_type STRING,                -- 'view', 'click', 'add_to_cart', 'purchase'
+    event_type STRING,                  -- 'view', 'click', 'add_to_cart', 'purchase'
     device_type STRING,
     dwell_time_ms BIGINT,
     referrer_page STRING,
+    
+    -- Geospatial & H3 Hierarchical Indexing (GeoParquet & Spatial Analytics)
+    latitude DOUBLE,
+    longitude DOUBLE,
+    h3_res7 BIGINT,                     -- Macro spatial index (~1.2 km² cell) for regional filtering
+    h3_res9 BIGINT,                     -- Micro spatial index (~0.1 km² cell) for sort key & visualization
+    geom_wkb BINARY,                    -- GeoParquet WKB format for GIS interoperability
+    
     record_source STRING NOT NULL
 ) USING iceberg
 PARTITIONED BY (days(load_date));
+-- Note: Sort order by h3_res9 is applied during Iceberg compaction to co-locate spatially adjacent records.
 ```
 
 ---
 
-## 5. Real-Time Ingestion & Streaming Processing (Flink / Fluss & Kafka)
+### 4.3 Hashing Standard
+
+All hash computations across the platform (Flink, dbt, Spark) **must** follow this standard to ensure deterministic, collision-resistant, and cross-engine reproducible hashes.
+
+| Rule | Specification |
+|:-----|:-------------|
+| **Algorithm** | MD5 (128-bit, hex-encoded lowercase) |
+| **Delimiter** | `U+001F` (Unit Separator) — cannot appear in business data |
+| **Null handling** | Replace `NULL` with literal string `^^NULL^^` |
+| **Trimming** | `TRIM(value)` before hashing |
+| **Case normalization** | `UPPER(value)` for all string fields |
+| **Column order** | Alphabetical by column name within each hash scope |
+| **Encoding** | UTF-8 bytes |
+| **Implementation** | Single shared UDF — all engines call the same implementation |
+
+**Hash Key example:**
+
+```sql
+-- hk_interaction_id: Hash Key for Link_User_Item_Interaction
+-- Columns (alphabetical): event_time, item_id, user_id
+hk_interaction_id = MD5(
+    UPPER(TRIM(COALESCE(CAST(event_time AS STRING), '^^NULL^^')))
+    || CHR(31)  -- U+001F Unit Separator
+    || UPPER(TRIM(COALESCE(item_id, '^^NULL^^')))
+    || CHR(31)
+    || UPPER(TRIM(COALESCE(user_id, '^^NULL^^')))
+)
+```
+
+**Hash Diff example:**
+
+```sql
+-- hash_diff for Sat_User_Profile
+-- Columns (alphabetical): age, gender, location, preference_category
+hash_diff = MD5(
+    UPPER(TRIM(COALESCE(CAST(age AS STRING), '^^NULL^^')))
+    || CHR(31)
+    || UPPER(TRIM(COALESCE(gender, '^^NULL^^')))
+    || CHR(31)
+    || UPPER(TRIM(COALESCE(location, '^^NULL^^')))
+    || CHR(31)
+    || UPPER(TRIM(COALESCE(preference_category, '^^NULL^^')))
+)
+```
+
+> [!IMPORTANT]
+> **Cross-engine correctness:** The hashing UDF must be implemented once (Java for Flink, SQL macro for dbt) and validated with a shared test vector set. Flink and dbt computing different hashes for the same logical record is the classic silent Data Vault failure.
+
+---
+
+## 5. Real-Time Ingestion & Streaming Processing (Flink & Kafka)
 
 ### 5.1 Real-Time Streaming Pipeline
 1. **CDC & Clickstream Ingestion:**
@@ -309,12 +370,18 @@ Automated testing scenarios executed via GitHub Actions prior to merging:
 
 ---
 
-## 7. OLAP Serving & Query Acceleration (StarRocks / Apache Doris)
+## 7. OLAP Serving & Query Acceleration (StarRocks)
 
 ### 7.1 Serving Layer Strategy
 * **Direct Iceberg Integration:** StarRocks connects directly to Apache Nessie Catalog to query Iceberg Parquet files natively without separate ETL steps.
 * **Real-Time Materialized Views:** Automatically flattens and aggregates data from Data Vault Satellites & Links into ready-to-use analytical views for BI Dashboards.
 * **Vectorized Execution Engine:** Delivers sub-second query latency (<100ms) over billions of clickstream & transaction records.
+
+### 7.2 Spatial & H3 Vectorized Analytics for Visualization
+To power interactive geospatial heatmaps without client-side lag:
+* **H3 Integer Aggregation:** Rather than performing expensive polygon-in-polygon math (`ST_Contains`), StarRocks aggregates metrics directly on 64-bit integer H3 columns (`GROUP BY h3_res8`, filtered by macro-cell `h3_res7`).
+* **Materialized Spatial Rollups:** StarRocks asynchronous materialized views continuously roll up interaction density, CTR, and dwell times per H3 cell.
+* **Direct Deck.gl / Kepler.gl Serving:** Serves lightweight GeoJSON/JSON payloads containing `{hex_id, metric_value}` directly to front-end visualization engines using GPU-accelerated `H3HexagonLayer`.
 
 ---
 
@@ -333,7 +400,7 @@ flowchart LR
     
     subgraph STAGE1["Stage 1: Candidate Retrieval (Filtering)"]
         API -->|"2. Get User Vector & History"| REDIS[("⚡ Online Feature Store (Redis)")]:::store
-        API -->|"3. ANN Search Top-1000 Items"| VEC[("🔍 Vector DB (Qdrant/Milvus)")]:::store
+        API -->|"3. ANN Search Top-1000 Items"| VEC[("🔍 Vector DB (Qdrant)")]:::store
     end
 
     subgraph STAGE2["Stage 2: Heavy Ranking & Re-ranking"]
@@ -353,7 +420,7 @@ flowchart LR
 
 To balance long-term historical accuracy with real-time user intent:
 
-1. **Online Feature Store (Redis / Dragonfly):**
+1. **Online Feature Store (Redis):**
    * **Real-Time Streaming Features:** Flink SQL continuously computes features from Kafka Clickstream and updates Redis within **< 100ms**:
      * `user:last_5_clicked_categories` (List of recently viewed categories).
      * `user:session_dwell_time_avg` (Average session dwell time).
@@ -374,13 +441,13 @@ To balance long-term historical accuracy with real-time user intent:
 #### **Stage 1: Candidate Retrieval (Candidate Matching - Top 1000)**
 * **Objective:** Reduce search space from millions of items to 1,000 candidate items in < 15ms.
 * **Techniques:**
-  1. **Vector / Embedding Search:** Two-Tower Neural Network (User Tower & Item Tower). User Vector (retrieved from Online Feature Store) executes ANN Search (Approximate Nearest Neighbor) against Vector DB (Qdrant / Milvus / StarRocks Vector) to fetch 500 top similar items.
+  1. **Vector / Embedding Search:** Two-Tower Neural Network (User Tower & Item Tower). User Vector (retrieved from Online Feature Store) executes ANN Search (Approximate Nearest Neighbor) against Qdrant to fetch 500 top similar items.
   2. **Real-time Collaborative Filtering:** Retrieves items similar to the last 5 items interacted with by the user.
   3. **Trending & Popularity Fallback:** Fetches top 100 trending items over the past hour (for Cold-start Users).
 
 #### **Stage 2: Heavy Ranking & Scoring (Top 50)**
 * **Objective:** Accurately estimate probability $P(\text{Click})$ or $P(\text{Conversion})$ for each of the 1,000 candidates.
-* **Model Architecture:** Deep Learning (Deep & Cross Network - DCNv2 / DIN) or LightGBM/XGBoost deployed on **Triton Inference Server** or **Ray Serve**.
+* **Model Architecture:** Deep Learning (Deep & Cross Network - DCNv2 / DIN) or LightGBM/XGBoost deployed on **Triton Inference Server**.
 * **Input Feature Vector:**
   $$\text{Feature Vector} = [\text{User Realtime Features} \oplus \text{User Historical Features} \oplus \text{Item Realtime Features} \oplus \text{Cross Features}]$$
 
@@ -393,7 +460,7 @@ To balance long-term historical accuracy with real-time user intent:
 
 ### 8.3 Low-Latency Serving API Infrastructure
 
-* **API Gateway & Service:** Built with Go / Rust or Async Python (FastAPI + uvloop) enforcing strict SLAs:
+* **API Gateway & Service:** Built with Go (net/http) enforcing strict SLAs:
   * **p95 Latency:** $< 35\text{ ms}$
   * **p99 Latency:** $< 50\text{ ms}$
 * **Circuit Breaker & Fallback:** If Vector DB or Inference Server times out (>30ms), the API automatically falls back to Top Trending Items cached in memory (Guava / Redis Local Cache), maintaining 99.99% availability.
@@ -428,7 +495,7 @@ To balance long-term historical accuracy with real-time user intent:
 
 ---
 
-## 9. Security, Governance & Data Mesh Compliance
+## 9. Security, Governance & Data Platform Compliance
 
 1. **Domain Ownership & Data Contracts:**
    * Each domain (E-Commerce, Clickstream, Supply Chain) retains full ownership over its schemas and data quality.
@@ -457,20 +524,21 @@ To balance long-term historical accuracy with real-time user intent:
 
 ## 11. Technology Stack Summary & Implementation Matrix
 
-| Architecture Layer | Technology Stack | Core Role & Responsibilities |
-| :--- | :--- | :--- |
-| **Ingestion Bus** | Apache Kafka / Redpanda | Real-time Event Streaming & CDC transport bus |
-| **Streaming Computation** | Apache Flink / Fluss SQL | Computes HashKeys, HashDiff, Windowing, Real-time Feature extraction |
-| **Storage Standard** | Apache Iceberg | Open Data Lakehouse format supporting ACID & Schema Evolution |
-| **Catalog & Governance** | Apache Nessie | Git-like catalog version control (Branch, Merge, Rollback) |
-| **Object Storage** | MinIO / AWS S3 / Apache Ozone | Scalable object storage for underlying Parquet files |
-| **OLAP Engine** | StarRocks / Apache Doris | Sub-second vectorized queries for BI & Aggregated Views |
-| **Online Feature Store** | Redis / Dragonfly | Low-latency real-time feature storage for RecSys (<5ms SLA) |
-| **Vector Database** | Qdrant / Milvus / StarRocks Vector | Vector embeddings storage & ANN search for candidate retrieval |
-| **Model Inference** | Triton Inference Server / Ray Serve | High-throughput serving for two-stage AI ranking models |
-| **Serving API Gateway** | FastAPI / Go Service | REST/gRPC API serving personalized recommendations (<50ms SLA) |
-| **DataOps CI/CD** | GitHub Actions + dbt Core | Automated Data Quality Testing on isolated Nessie branches |
-| **Orchestration & ML** | Apache Airflow / MLflow | Workflow scheduling, model retraining, and ML Model Registry |
+| Architecture Layer | Technology Stack | Core Role & Responsibilities | Decision |
+| :--- | :--- | :--- | :--- |
+| **Ingestion Bus** | Apache Kafka | Real-time Event Streaming & CDC transport bus | [ADR-001](docs/adr/ADR-001-ingestion-bus.md) |
+| **Streaming Computation** | Apache Flink SQL | Computes HashKeys, HashDiff, Windowing, Real-time Feature extraction | [ADR-002](docs/adr/ADR-002-streaming-engine.md) |
+| **Streaming Storage (Evaluated)** | Apache Fluss (Incubating) | Mutable streaming buffer & changelog tier to prevent Iceberg small-file explosion | [ADR-013](docs/adr/ADR-013-streaming-storage-tier.md) |
+| **Storage Standard** | Apache Iceberg | Open Data Lakehouse format supporting ACID & Schema Evolution | [ADR-003](docs/adr/ADR-003-storage-format.md) |
+| **Catalog & Governance** | Apache Nessie | Git-like catalog version control (Branch, Merge, Rollback) | [ADR-004](docs/adr/ADR-004-catalog-governance.md) |
+| **Object Storage** | MinIO (dev) / AWS S3 (prod) | Scalable object storage for underlying Parquet files | [ADR-005](docs/adr/ADR-005-object-storage.md) |
+| **OLAP Engine** | StarRocks | Sub-second vectorized queries for BI & Aggregated Views | [ADR-006](docs/adr/ADR-006-olap-engine.md) |
+| **Online Feature Store** | Redis | Low-latency real-time feature storage for RecSys (<5ms SLA) | [ADR-007](docs/adr/ADR-007-online-feature-store.md) |
+| **Vector Database** | Qdrant | Vector embeddings storage & ANN search for candidate retrieval | [ADR-008](docs/adr/ADR-008-vector-database.md) |
+| **Model Inference** | Triton Inference Server | High-throughput serving for two-stage AI ranking models | [ADR-009](docs/adr/ADR-009-model-inference.md) |
+| **Serving API Gateway** | Go Service (net/http) | REST/gRPC API serving personalized recommendations (<50ms SLA) | [ADR-010](docs/adr/ADR-010-serving-api.md) |
+| **DataOps CI/CD** | GitHub Actions + dbt Core | Automated Data Quality Testing on isolated Nessie branches | [ADR-011](docs/adr/ADR-011-dataops-cicd.md) |
+| **Orchestration & ML** | Apache Airflow + MLflow | Workflow scheduling, model retraining, and ML Model Registry | [ADR-012](docs/adr/ADR-012-orchestration-ml.md) |
 
 ---
 
@@ -538,7 +606,7 @@ To validate and benchmark the performance of this platform end-to-end (from Kafk
 | `user_id` + `item_id` + `timestamp` | Streaming Data Vault | `vault.link_user_item_interaction` | Interaction Relationship |
 | `behavior_type` + `dwell_time` | Streaming Data Vault | `vault.sat_interaction_context` | Context & Temporal Attributes |
 | `user_id` + recent `item_id`s | Online Feature Store | **Redis Key:** `user:last_5_clicked` | Low-latency RecSys context (<5ms SLA) |
-| `item_id` + `detail_desc` | Vector Database | **Qdrant / Milvus Collection** | ANN Candidate Retrieval |
+| `item_id` + `detail_desc` | Vector Database | **Qdrant Collection** | ANN Candidate Retrieval |
 
 ---
 
