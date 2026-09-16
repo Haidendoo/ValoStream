@@ -47,95 +47,113 @@ flowchart TD
     classDef cicd fill:#831843,stroke:#ec4899,color:#fff,stroke-width:2px;
     classDef serving fill:#7c2d12,stroke:#f97316,color:#fff,stroke-width:2px;
     classDef recsys fill:#581c87,stroke:#a855f7,color:#fff,stroke-width:2px;
+    classDef spatial fill:#0f766e,stroke:#14b8a6,color:#fff,stroke-width:2px;
 
-    %% 1. Multi-Domain Data Sources
-    subgraph DOMAINS["🌐 Multi-Domain Data Sources"]
+    %% 1. Multi-Domain Data Sources (Delivery, GIS & Clickstream)
+    subgraph DOMAINS["🌐 Multi-Domain Data Sources (Delivery, GIS & Clickstream)"]
         direction TB
-        D1["<b>Transactional CDC</b><br/>Debezium MySQL/PG<br/><i>Orders, Payments, Users</i>"]:::domain
-        D2["<b>Clickstream Events</b><br/>SDK / Webhooks<br/><i>Views, Clicks, Searches</i>"]:::domain
-        D3["<b>Item Metadata API</b><br/>Catalog Service<br/><i>Products, Videos, Tags</i>"]:::domain
+        D1["<b>Transactional CDC</b><br/>Debezium MySQL/PG<br/><i>Orders, Payments, Merchants</i>"]:::domain
+        D2["<b>User Clickstream Events</b><br/>Customer Mobile/Web SDK<br/><i>Views, Clicks, Searches, Cart</i>"]:::domain
+        D3["<b>Courier GPS Telemetry</b><br/>Driver App IoT Stream<br/><i>Live Coordinates (lat/lon), Speed, ETA</i>"]:::domain
     end
 
     %% 2. Ingestion & Streaming Layer
     subgraph INGESTION["⚡ Real-Time Ingestion & Streaming Layer"]
-        KAFKA["<b>Apache Kafka</b><br/>Distributed Event Bus"]:::ingest
-        FLINK["<b>Apache Flink Engine</b><br/>• Real-Time Hash MD5 & HashDiff<br/>• Stream Deduplication & Load Date<br/>• Feature Extraction Stream"]:::ingest
+        KAFKA["<b>Apache Kafka</b><br/>Distributed Event Bus<br/><i>(events.clickstream, events.telemetry, cdc.orders)</i>"]:::ingest
+        FLINK["<b>Apache Flink & PyFlink</b><br/>• Real-Time Hash MD5 & HashDiff<br/>• Stream Deduplication & Load Date<br/>• Uber H3 Spatial Indexing (res7, res9)<br/>• GeoParquet WKB & Feature Extraction"]:::ingest
     end
 
-    %% 3. Streaming Data Vault 2.0
-    subgraph STORAGE["🏛️ Streaming Data Vault 2.0 (Apache Iceberg)"]
+    %% 2.5 Real-Time Streaming Storage Buffer (Fluss)
+    subgraph FLUSS_TIER["⚡ Real-Time Streaming Storage Tier (Apache Fluss)"]
         direction TB
-        subgraph HUBS["Hub Tables (Business Keys)"]
-            H_USER["Hub_User"]
-            H_ITEM["Hub_Item"]
+        FLUSS_PK["<b>Fluss Updatable PK Table</b><br/>courier_telemetry_live<br/><i>(Sub-second mutable state)</i>"]:::ingest
+        FLUSS_LOG["<b>Fluss Real-Time Append Log</b><br/>clickstream_realtime_log<br/><i>(Streaming buffer)</i>"]:::ingest
+    end
+
+    %% 3. Streaming Data Vault 2.0 (Iceberg + GeoParquet)
+    subgraph STORAGE["🏛️ Streaming Data Vault 2.0 (Apache Iceberg & GeoParquet)"]
+        direction TB
+        subgraph HUBS["Hub Tables (Core Entities)"]
+            H_USER["Hub_User (Customer)"]
+            H_ITEM["Hub_Item (Product/Dish)"]
+            H_MERCHANT["Hub_Merchant (Store)"]
+            H_COURIER["Hub_Courier (Driver)"]
+            H_ORDER["Hub_Order"]
         end
-        subgraph LINKS["Link Tables (Relationships)"]
+        subgraph LINKS["Link Tables (Interactions & Logistics)"]
             L_INTERACTION["Link_User_Item_Interaction"]
+            L_DELIVERY["Link_Delivery_Trip<br/><i>(Order - Courier - Merchant - User)</i>"]
         end
-        subgraph SATS["Satellite Tables (Context & Attributes)"]
+        subgraph SATS["Satellite Tables (Context, State & Spatial)"]
             S_USER_PROF["Sat_User_Profile"]
-            S_ITEM_META["Sat_Item_Metadata"]
-            S_INTERACTION["Sat_Interaction_Context"]
+            S_MERCHANT_LOC["Sat_Merchant_Location<br/><i>(Polygon, Geohash)</i>"]
+            S_INTERACTION["Sat_Interaction_Context<br/><i>(Dwell Time, User H3 Cell)</i>"]
+            S_COURIER_LOC["Sat_Courier_Telemetry<br/><i>(GPS Track, Speed, H3 res9, WKB)</i>"]
         end
     end
     class STORAGE,HUBS,LINKS,SATS vault;
 
     %% 4. Governance & Versioning
     subgraph GOVERNANCE["🔒 Data Governance & Versioning"]
-        NESSIE{"<b>Apache Nessie Server</b><br/>Git-like Catalog Management<br/><i>(Main & Isolation Branches)</i>"}:::lakehouse
-        STORAGE_S3[("<b>Object Storage</b><br/>MinIO (dev) / AWS S3 (prod)")]:::lakehouse
+        NESSIE{"<b>Apache Nessie Server</b><br/>Git-like Iceberg REST Catalog<br/><i>(Main & Zero-Copy Branches)</i>"}:::lakehouse
+        STORAGE_S3[("<b>Object Storage</b><br/>MinIO (dev) / AWS S3 (prod)<br/><i>(Iceberg + GeoParquet files)</i>")]:::lakehouse
     end
 
     %% 5. DataOps & CI/CD
     subgraph DATAOPS["⚙️ DataOps & Quality Gate"]
-        GHA["<b>GitHub Actions CI/CD</b><br/>Branch Isolation -> dbt Test -> Merge"]:::cicd
+        GHA["<b>GitHub Actions CI/CD</b><br/>Branch Isolation -> dbt Test -> Discard Branch"]:::cicd
     end
 
-    %% 6. OLAP Serving Layer
-    subgraph SERVING["🚀 Serving & OLAP Analytics"]
-        STARROCKS["<b>StarRocks</b><br/>• Iceberg External Catalog<br/>• Real-Time PIT & Bridge Views<br/>• Sub-Second BI & Analytics"]:::serving
-        BI["<b>BI & Executive Dashboards</b><br/>Metabase / Superset / Tableau"]:::serving
+    %% 6. OLAP Serving & Spatial Analytics Layer
+    subgraph SERVING["🚀 Serving & Spatial Analytics Layer"]
+        STARROCKS["<b>StarRocks Vectorized Engine</b><br/>• Iceberg REST External Catalog<br/>• Sub-second PIT & Bridge Views<br/>• Real-Time H3 Hexagon Spatial Rollups"]:::serving
+        BI["<b>BI & Executive Dashboards</b><br/>Metabase / Superset"]:::serving
+        MAP_VIZ["<b>3D Spatial Heatmap & Fleet Tracking</b><br/>Deck.gl / Kepler.gl<br/><i>(H3HexagonLayer, Sub-50ms)</i>"]:::spatial
     end
 
-    %% 7. Recommender System & Feature Store Layer
-    subgraph RECSYS["🤖 Real-Time Recommender System Engine"]
-        FEAT_ONLINE[("<b>Online Feature Store</b><br/>Redis<br/><i>(Low Latency < 5ms)</i>")]:::recsys
-        FEAT_OFFLINE[("<b>Offline Feature Store</b><br/>Apache Iceberg<br/><i>(Historical Embeddings)</i>")]:::recsys
-        VECTOR_DB[("<b>Vector DB / ANN Search</b><br/>Qdrant<br/><i>(Candidate Retrieval)</i>")]:::recsys
-        MODEL_SERVING["<b>Model Serving Engine</b><br/>Triton Inference Server<br/><i>(Two-Stage Ranking & Re-ranking)</i>"]:::recsys
-        REC_API["<b>User Recommendation API</b><br/>Gateway Service (< 50ms SLA)"]:::recsys
+    %% 7. Location-Aware Recommender System & Feature Store
+    subgraph RECSYS["🤖 Location-Aware Recommender System"]
+        FEAT_ONLINE[("<b>Online Feature Store (Redis)</b><br/>• Real-time user intent<br/>• Courier & User H3 proximity<br/><i>(SLA < 5ms)</i>")]:::recsys
+        FEAT_OFFLINE[("<b>Offline Feature Store</b><br/>Apache Iceberg<br/><i>(Historical Embeddings & Travel Times)</i>")]:::recsys
+        VECTOR_DB[("<b>Vector DB (Qdrant)</b><br/>• ANN Candidate Retrieval<br/>• Spatial Bounding-Box Filter<br/><i>(Top-1000 items/stores nearby)</i>")]:::recsys
+        MODEL_SERVING["<b>Model Serving Engine (Triton)</b><br/>Two-Stage Ranking (DCNv2)<br/><i>(Context + Distance + ETA + Cross Features)</i>"]:::recsys
+        REC_API["<b>Location-Aware Rec API</b><br/>Gateway Service (< 50ms SLA)"]:::recsys
     end
 
-    %% User Client & Feedback Loop
-    USER_APP["📱 User Application / Front-End"]
+    %% User & Courier Clients
+    USER_APP["📱 Customer Mobile App<br/><i>(Browse, Order, Track)</i>"]
+    COURIER_APP["🛵 Courier / Driver App<br/><i>(Accept, Navigate, Deliver)</i>"]
 
     %% Flow Connections
     D1 -->|CDC Logs| KAFKA
-    D2 -->|Click Events| KAFKA
-    D3 -->|API Payloads| KAFKA
+    D2 -->|Clickstream Events| KAFKA
+    D3 -->|GPS Telemetry Pings| KAFKA
 
     KAFKA --> FLINK
-    FLINK -->|Stream Writes| STORAGE
-    FLINK -->|Real-Time Features| FEAT_ONLINE
+    FLINK -->|Sub-second Mutable Writes| FLUSS_TIER
+    FLINK -->|10s Exactly-Once Commits| STORAGE
+    FLINK -->|Real-Time Spatial Features| FEAT_ONLINE
 
     STORAGE <--->|Catalog Metadata| NESSIE
     STORAGE <---> STORAGE_S3
 
-    NESSIE <--->|API Branching / Merge| GHA
+    NESSIE <--->|REST API Branching| GHA
     GHA -->|"dbt Validate & Test"| STARROCKS
 
     NESSIE <--->|Multi-Branch Catalog| STARROCKS
     STARROCKS -->|Sub-second Queries| BI
+    STARROCKS -->|H3 Hexagon Aggregates| MAP_VIZ
     FLINK -->|Batch Feature Generation| FEAT_OFFLINE
 
-    FEAT_OFFLINE -->|Sync Historical Embeddings| VECTOR_DB
-    FEAT_ONLINE -->|Real-Time Context| MODEL_SERVING
-    VECTOR_DB -->|Top-K Candidates| MODEL_SERVING
+    FEAT_OFFLINE -->|Sync Embeddings| VECTOR_DB
+    FEAT_ONLINE -->|Real-Time & Geo Context| MODEL_SERVING
+    VECTOR_DB -->|Top-K Nearby Candidates| MODEL_SERVING
 
     MODEL_SERVING --> REC_API
-    REC_API -->|Personalized Recs| USER_APP
+    REC_API -->|Personalized & Nearby Recs| USER_APP
     REC_API -->|"Impression Events (Feedback)"| KAFKA
-    USER_APP -->|"User Clicks/Impressions (Feedback Loop)"| D2
+    USER_APP -->|"Clicks & Order Actions"| D2
+    COURIER_APP -->|"Real-Time GPS Broadcast"| D3
 ```
 
 ---
@@ -396,22 +414,22 @@ flowchart LR
     classDef store fill:#064e3b,stroke:#10b981,color:#fff;
     classDef model fill:#831843,stroke:#f43f5e,color:#fff;
 
-    U["📱 User Client"]:::client -->|"1. Request Recs (User ID + Context)"| API["🚀 Recommendation API Gateway"]:::recsys
+    U["📱 Customer Client"]:::client -->|"1. Request Recs (User ID + Current GPS/H3)"| API["🚀 Recommendation API Gateway"]:::recsys
     
-    subgraph STAGE1["Stage 1: Candidate Retrieval (Filtering)"]
-        API -->|"2. Get User Vector & History"| REDIS[("⚡ Online Feature Store (Redis)")]:::store
-        API -->|"3. ANN Search Top-1000 Items"| VEC[("🔍 Vector DB (Qdrant)")]:::store
+    subgraph STAGE1["Stage 1: Candidate Retrieval (Spatial & Semantic Filtering)"]
+        API -->|"2. Get User Vector, Clicks & Nearby Stores"| REDIS[("⚡ Online Feature Store (Redis)<br/>• Real-time intent<br/>• GEO radius & H3 index")]:::store
+        API -->|"3. ANN Search + Geo-Bounding Filter"| VEC[("🔍 Vector DB (Qdrant)<br/>• Semantic Embeddings<br/>• Delivery Radius Filter")]:::store
     end
 
-    subgraph STAGE2["Stage 2: Heavy Ranking & Re-ranking"]
-        VEC -->|"Candidates"| RANK["🧠 Ranking Engine (Triton/Ray)"]:::model
-        REDIS -->|"Real-time Features"| RANK
-        RANK -->|"4. Scored Candidates"| RERANK["⚖️ Re-Ranking & Business Rules<br/>(Diversity, Deduplication, Availability)"]:::recsys
+    subgraph STAGE2["Stage 2: Heavy Ranking & Logistics Re-ranking"]
+        VEC -->|"Top-1000 Nearby Candidates"| RANK["🧠 Ranking Engine (Triton)"]:::model
+        REDIS -->|"Real-time Features + Courier Proximity & ETA"| RANK
+        RANK -->|"4. Scored Candidates"| RERANK["⚖️ Re-Ranking & Logistics Rules<br/>(Distance, Store Rating, Delivery Fee, Courier Capacity)"]:::recsys
     end
 
-    RERANK -->|"5. Top-K Personalized Items"| API
+    RERANK -->|"5. Top-50 Ranked Merchants & Items"| API
     API -->|"6. JSON Response (< 50ms)"| U
-    U -->|"7. User Action (Click/Impression)"| KAFKA["⚡ Apache Kafka"]:::store
+    U -->|"7. User Action (Click/Order/Cart)"| KAFKA["⚡ Apache Kafka"]:::store
 ```
 
 ---
@@ -527,16 +545,17 @@ To balance long-term historical accuracy with real-time user intent:
 | Architecture Layer | Technology Stack | Core Role & Responsibilities | Decision |
 | :--- | :--- | :--- | :--- |
 | **Ingestion Bus** | Apache Kafka | Real-time Event Streaming & CDC transport bus | [ADR-001](docs/adr/ADR-001-ingestion-bus.md) |
-| **Streaming Computation** | Apache Flink SQL | Computes HashKeys, HashDiff, Windowing, Real-time Feature extraction | [ADR-002](docs/adr/ADR-002-streaming-engine.md) |
-| **Streaming Storage (Evaluated)** | Apache Fluss (Incubating) | Mutable streaming buffer & changelog tier to prevent Iceberg small-file explosion | [ADR-013](docs/adr/ADR-013-streaming-storage-tier.md) |
+| **Streaming Computation** | Apache Flink & PyFlink | Computes HashKeys, HashDiff, Windowing, Spatial Python UDFs, Real-time Feature extraction | [ADR-002](docs/adr/ADR-002-streaming-engine.md) |
+| **Geospatial Storage & Indexing** | Apache Sedona + Uber H3 + GeoParquet | OGC standard WKB Point storage, hierarchical discrete indexing (res 7/9), Deck.gl visualization | [ADR-014](docs/adr/ADR-014-geospatial-h3-indexing.md) |
+| **Streaming Storage Tier** | Apache Fluss | Sub-second mutable streaming buffer (<1s point lookups) & changelog tier to eliminate Iceberg small-file explosion | [ADR-013](docs/adr/ADR-013-streaming-storage-tier.md) |
 | **Storage Standard** | Apache Iceberg | Open Data Lakehouse format supporting ACID & Schema Evolution | [ADR-003](docs/adr/ADR-003-storage-format.md) |
 | **Catalog & Governance** | Apache Nessie | Git-like catalog version control (Branch, Merge, Rollback) | [ADR-004](docs/adr/ADR-004-catalog-governance.md) |
 | **Object Storage** | MinIO (dev) / AWS S3 (prod) | Scalable object storage for underlying Parquet files | [ADR-005](docs/adr/ADR-005-object-storage.md) |
-| **OLAP Engine** | StarRocks | Sub-second vectorized queries for BI & Aggregated Views | [ADR-006](docs/adr/ADR-006-olap-engine.md) |
+| **OLAP Engine** | StarRocks | Sub-second vectorized queries for BI, Spatial Rollups & Aggregated Views | [ADR-006](docs/adr/ADR-006-olap-engine.md) |
 | **Online Feature Store** | Redis | Low-latency real-time feature storage for RecSys (<5ms SLA) | [ADR-007](docs/adr/ADR-007-online-feature-store.md) |
 | **Vector Database** | Qdrant | Vector embeddings storage & ANN search for candidate retrieval | [ADR-008](docs/adr/ADR-008-vector-database.md) |
 | **Model Inference** | Triton Inference Server | High-throughput serving for two-stage AI ranking models | [ADR-009](docs/adr/ADR-009-model-inference.md) |
-| **Serving API Gateway** | Go Service (net/http) | REST/gRPC API serving personalized recommendations (<50ms SLA) | [ADR-010](docs/adr/ADR-010-serving-api.md) |
+| **Serving API Gateway** | FastAPI / Go Service | REST/gRPC API serving spatial recommendations & Deck.gl H3 hexagons (<50ms SLA) | [ADR-010](docs/adr/ADR-010-serving-api.md) |
 | **DataOps CI/CD** | GitHub Actions + dbt Core | Automated Data Quality Testing on isolated Nessie branches | [ADR-011](docs/adr/ADR-011-dataops-cicd.md) |
 | **Orchestration & ML** | Apache Airflow + MLflow | Workflow scheduling, model retraining, and ML Model Registry | [ADR-012](docs/adr/ADR-012-orchestration-ml.md) |
 

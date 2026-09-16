@@ -1,7 +1,7 @@
-# ADR-013: Streaming Storage Tier (Apache Fluss) Evaluation & Synergy with Flink
+# ADR-013: Streaming Storage Tier (Apache Fluss) Integration & Synergy with Flink
 
-**Status:** Proposed / Under Evaluation  
-**Date:** 2026-09-15  
+**Status:** Accepted  
+**Date:** 2026-09-16  
 
 ## Context
 In high-throughput streaming architectures (target 10,000–100,000 events/sec), committing streaming updates directly to Apache Iceberg at short checkpoint intervals (e.g., 2 seconds) produces severe operational side effects:
@@ -14,8 +14,9 @@ In high-throughput streaming architectures (target 10,000–100,000 events/sec),
 - Native lakehouse tiering: buffering real-time streaming updates in Fluss and automatically sinking them into Apache Iceberg / Paimon in compacted batches (e.g., every 5–15 minutes).
 
 ## Decision
-1. **Initial Baseline (Step 2 Walking Skeleton):** Retain direct Flink → Iceberg writes with a relaxed checkpoint interval (30–60 seconds) and scheduled Iceberg compaction jobs (`rewrite_data_files`, `expire_snapshots`) to keep initial infrastructure complexity manageable.
-2. **Evaluation Milestone (Step 1.2 Spike & Step 3):** If the Nessie commit ceiling and file compaction benchmarks reveal unacceptable commit latency, high retry rates, or query degradation under 100k events/sec, deploy **Apache Fluss** as the real-time mutable streaming storage tier between Flink and Iceberg.
+Adopt **Apache Fluss** (0.9.1) alongside **Apache Iceberg** in a dual-tier storage topology:
+1. **Streaming Storage Tier (Fluss):** Serves real-time, mutable sub-second point lookups (`courier_telemetry_live` updatable PK table) and append logs (`clickstream_realtime_log`), buffering high-frequency pings without creating small files in the lakehouse.
+2. **Lakehouse Storage Tier (Iceberg via Nessie):** Flink sinks transactional Data Vault 2.0 tables (`hub_*`, `link_*`, `sat_*`) to Iceberg Parquet files on MinIO/S3 using 10s–60s checkpoints for historical analytics, compliance, and vectorized OLAP via StarRocks.
 
 ```
 [Kafka Ingestion] ──► [Apache Flink Compute]

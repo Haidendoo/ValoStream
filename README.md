@@ -41,8 +41,8 @@ ValoStream is an enterprise data platform that eliminates the gap between real-t
 | Layer | Technology | Role | Decision |
 |:------|:-----------|:-----|:---------|
 | **Event Ingestion** | Apache Kafka | Distributed event bus for clickstream & CDC events | [ADR-001](docs/adr/ADR-001-ingestion-bus.md) |
-| **Stream Compute** | Apache Flink SQL | Stateful stream transformations, MD5 HashKey/HashDiff, deduplication | [ADR-002](docs/adr/ADR-002-streaming-engine.md) |
-| **Streaming Storage (Buffer)** | Apache Fluss (Evaluated) | Real-time changelog buffer to prevent Iceberg small-file explosion | [ADR-013](docs/adr/ADR-013-streaming-storage-tier.md) |
+| **Stream Compute** | Apache Flink & PyFlink | Stateful stream transformations, Python spatial UDFs (H3, Shapely WKB), MD5 HashKey/HashDiff | [ADR-002](docs/adr/ADR-002-streaming-engine.md) |
+| **Streaming Storage (Buffer)** | Apache Fluss | Sub-second real-time streaming buffer (<1s latency) to eliminate Iceberg small files | [ADR-013](docs/adr/ADR-013-streaming-storage-tier.md) |
 | **Lakehouse Storage** | Apache Iceberg | ACID transactions, hidden partitioning, schema evolution | [ADR-003](docs/adr/ADR-003-storage-format.md) |
 | **Data Catalog & Git Versioning** | Apache Nessie | Zero-copy branching, branch-per-PR isolation, instant rollback | [ADR-004](docs/adr/ADR-004-catalog-governance.md) |
 | **Object Storage** | MinIO / AWS S3 | S3-compatible Parquet file persistence | [ADR-005](docs/adr/ADR-005-object-storage.md) |
@@ -50,7 +50,7 @@ ValoStream is an enterprise data platform that eliminates the gap between real-t
 | **Online Feature Store** | Redis | Low-latency feature serving (<5ms p99) for recommendation engine | [ADR-007](docs/adr/ADR-007-online-feature-store.md) |
 | **Vector Search** | Qdrant | Fast ANN candidate retrieval (<15ms) for personalized recommendations | [ADR-008](docs/adr/ADR-008-vector-database.md) |
 | **Inference Server** | Triton Inference Server | High-throughput GPU dynamic batching for DCNv2 ranking models | [ADR-009](docs/adr/ADR-009-model-inference.md) |
-| **Serving API Gateway** | Go (`net/http`) | Ultra-low-overhead recommendation endpoint (<50ms SLA) | [ADR-010](docs/adr/ADR-010-serving-api.md) |
+| **Serving API Gateway** | FastAPI / Go (`net/http`) | Spatial recommendation & Deck.gl H3 hexagon endpoints (<50ms SLA) | [ADR-010](docs/adr/ADR-010-serving-api.md) |
 | **Spatial Analytics & Heatmap** | Apache Sedona + Uber H3 + Deck.gl | GeoParquet point storage, H3 hexagon indexing, GPU 3D visualization | [ADR-014](docs/adr/ADR-014-geospatial-h3-indexing.md) |
 | **DataOps Quality Gate** | GitHub Actions + dbt Core | Automated data quality verification on isolated Nessie branches | [ADR-011](docs/adr/ADR-011-dataops-cicd.md) |
 | **Orchestration & ML** | Apache Airflow + MLflow | Scheduled table maintenance, model retraining, and registry | [ADR-012](docs/adr/ADR-012-orchestration-ml.md) |
@@ -67,9 +67,12 @@ ValoStream is an enterprise data platform that eliminates the gap between real-t
   - Integrated Geospatial H3 indexing and GeoParquet format.
 - [x] **Step 1: Validation Spikes**
   - [x] **Spike 1.1:** StarRocks Iceberg REST branch integration benchmarked (**~49.6 ms** PR lifecycle, memory stable).
-  - [ ] **Spike 1.2–1.4:** To be consolidated into the Walking Skeleton.
-- [ ] **Step 2: Walking Skeleton**
-  - Minimal end-to-end event flow: Kafka → Flink → Iceberg (Nessie) → StarRocks → Recommender API.
+  - [x] **Spike 1.2–1.4:** Verified via Walking Skeleton integration tests.
+- [x] **Step 2: Walking Skeleton (100% Complete & Verified)**
+  - **Docker Compose Stack:** 13 operational services (Kafka, MinIO, Nessie, StarRocks, Flink JobManager/TaskManager, Redis, Qdrant, ZooKeeper, Fluss Coordinator & 3 Tablet Servers).
+  - **PyFlink Dual-Tier Streaming DAG:** Real-time ingestion consuming Kafka `events.clickstream` and `events.telemetry`, generating uppercase MD5 keys, computing Uber H3 hexagonal discrete global grid indexes (`h3_res7`, `h3_res9`), and generating OGC-compliant GeoParquet WKB Point geometries via Shapely Python UDFs.
+  - **Streaming Buffer & Lakehouse Vault:** Dual writes to **Apache Fluss** (<1s latency updatable PK table `courier_telemetry_live` + append log) AND **Apache Iceberg** via Nessie REST catalog (`hub_user`, `hub_merchant`, `hub_courier`, `link_user_merchant_interaction`, `sat_interaction_context_spatial`, `sat_courier_telemetry_spatial`).
+  - **Vectorized OLAP & Serving API:** StarRocks external catalog query latency <50ms; FastAPI serving engine live with `/recommendations` (H3 neighborhood filtered), `/spatial/hexagons` (3D Deck.gl layer ready), and `/spatial/couriers` (live delivery telemetry).
 - [ ] **Step 3: Operational Tier**
   - Scheduled Iceberg bin-pack compaction (`rewrite_data_files`), snapshot expiry, and SLI/SLO alerting.
 - [ ] **Step 4: Quality & Governance**

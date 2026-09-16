@@ -1,0 +1,20 @@
+FROM flink:1.18
+
+USER root
+
+# Install Python 3, pip, and system dependencies
+RUN apt-get update -y && \
+    apt-get install -y --no-install-recommends \
+        python3 \
+        python3-pip \
+        python3-dev \
+        build-essential && \
+    ln -sf /usr/bin/python3 /usr/bin/python && \
+    pip3 install --no-cache-dir \
+        apache-flink==1.18.1 \
+        h3 \
+        shapely && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+USER flink
