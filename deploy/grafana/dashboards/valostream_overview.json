@@ -1,0 +1,210 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "title": "Flink — Checkpoint Duration (ms)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "flink_jobmanager_job_lastCheckpointDuration{job=\"flink\"}",
+          "legendFormat": "{{job_name}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 30000 },
+              { "color": "red", "value": 60000 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Flink — Records In/Out per Second",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "rate(flink_taskmanager_job_task_numRecordsIn[1m])",
+          "legendFormat": "Records In — {{task_name}}"
+        },
+        {
+          "expr": "rate(flink_taskmanager_job_task_numRecordsOut[1m])",
+          "legendFormat": "Records Out — {{task_name}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
+    },
+    {
+      "title": "Flink — Checkpoint Completed Count",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "flink_jobmanager_job_numberOfCompletedCheckpoints{job=\"flink\"}",
+          "legendFormat": "Completed"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    },
+    {
+      "title": "Flink — Checkpoint Failed Count",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 8 },
+      "targets": [
+        {
+          "expr": "flink_jobmanager_job_numberOfFailedCheckpoints{job=\"flink\"}",
+          "legendFormat": "Failed"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Flink — Task Slots Available vs Used",
+      "type": "gauge",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "expr": "flink_jobmanager_taskSlotsAvailable{job=\"flink\"}",
+          "legendFormat": "Available"
+        },
+        {
+          "expr": "flink_jobmanager_numRegisteredTaskManagers{job=\"flink\"}",
+          "legendFormat": "TaskManagers"
+        }
+      ]
+    },
+    {
+      "title": "Flink — JVM Heap Used (MB)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 8 },
+      "targets": [
+        {
+          "expr": "flink_jobmanager_Status_JVM_Memory_Heap_Used{job=\"flink\"} / 1048576",
+          "legendFormat": "JobManager Heap"
+        },
+        {
+          "expr": "flink_taskmanager_Status_JVM_Memory_Heap_Used{job=\"flink\"} / 1048576",
+          "legendFormat": "TaskManager Heap"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "decmbytes" }, "overrides": [] }
+    },
+    {
+      "title": "Kafka — Consumer Group Lag (estimated)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "targets": [
+        {
+          "expr": "flink_taskmanager_job_task_operator_KafkaSourceReader_KafkaConsumer_records_lag_max{job=\"flink\"}",
+          "legendFormat": "Max Lag — {{task_name}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    },
+    {
+      "title": "StarRocks — Query Latency (p99)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "targets": [
+        {
+          "expr": "starrocks_be_query_latency_p99{job=\"starrocks\"}",
+          "legendFormat": "p99 Query Latency"
+        },
+        {
+          "expr": "starrocks_be_query_latency_p95{job=\"starrocks\"}",
+          "legendFormat": "p95 Query Latency"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "µs" }, "overrides": [] }
+    },
+    {
+      "title": "StarRocks — Active Queries",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 20 },
+      "targets": [
+        {
+          "expr": "starrocks_be_plan_fragment_count{job=\"starrocks\"}",
+          "legendFormat": "Active Fragments"
+        }
+      ]
+    },
+    {
+      "title": "StarRocks — Compaction Score",
+      "type": "gauge",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 20 },
+      "targets": [
+        {
+          "expr": "starrocks_be_max_compaction_score{job=\"starrocks\"}",
+          "legendFormat": "Max Compaction Score"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 100 },
+              { "color": "red", "value": 500 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["valostream", "flink", "iceberg", "starrocks"],
+  "templating": {
+    "list": [
+      {
+        "current": { "selected": false, "text": "Prometheus", "value": "Prometheus" },
+        "hide": 0,
+        "includeAll": false,
+        "name": "DS_PROMETHEUS",
+        "options": [],
+        "query": "prometheus",
+        "type": "datasource"
+      }
+    ]
+  },
+  "time": { "from": "now-1h", "to": "now" },
+  "title": "ValoStream Platform Overview",
+  "uid": "valostream-overview"
+}

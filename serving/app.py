@@ -11,11 +11,23 @@ import time
 from typing import List, Optional, Dict, Any
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Query, HTTPException
+from fastapi import FastAPI, Query, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import pymysql
 import h3
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST, Counter, Histogram
+
+REQUEST_COUNT = Counter(
+    "valostream_api_requests_total",
+    "Total requests to ValoStream serving API",
+    ["endpoint", "status"]
+)
+REQUEST_LATENCY = Histogram(
+    "valostream_api_request_duration_seconds",
+    "Request latency in seconds",
+    ["endpoint"]
+)
 
 STARROCKS_HOST = os.getenv("STARROCKS_HOST", "localhost")
 STARROCKS_PORT = int(os.getenv("STARROCKS_PORT", "9030"))
@@ -61,6 +73,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.get("/metrics")
+def get_metrics():
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 class MerchantRecommendation(BaseModel):
     merchant_id: str

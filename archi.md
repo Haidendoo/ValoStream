@@ -70,38 +70,57 @@ flowchart TD
         FLUSS_LOG["<b>Fluss Real-Time Append Log</b><br/>clickstream_realtime_log<br/><i>(Streaming buffer)</i>"]:::ingest
     end
 
-    %% 3. Streaming Data Vault 2.0 (Iceberg + GeoParquet)
-    subgraph STORAGE["🏛️ Streaming Data Vault 2.0 (Apache Iceberg & GeoParquet)"]
+    %% 3. Medallion Lakehouse Storage (Iceberg + Nessie + S3)
+    subgraph MEDALLION["🏛️ Medallion Lakehouse Storage (Apache Iceberg via Nessie Catalog)"]
         direction TB
-        subgraph HUBS["Hub Tables (Core Entities)"]
-            H_USER["Hub_User (Customer)"]
-            H_ITEM["Hub_Item (Product/Dish)"]
-            H_MERCHANT["Hub_Merchant (Store)"]
-            H_COURIER["Hub_Courier (Driver)"]
-            H_ORDER["Hub_Order"]
+
+        subgraph BRONZE["🥉 Bronze Tier (Raw & Immutable Append Log)"]
+            B_CLICK["raw_clickstream"]
+            B_TELEM["raw_telemetry"]
+            B_CDC["raw_orders_cdc"]
         end
-        subgraph LINKS["Link Tables (Interactions & Logistics)"]
-            L_INTERACTION["Link_User_Item_Interaction"]
-            L_DELIVERY["Link_Delivery_Trip<br/><i>(Order - Courier - Merchant - User)</i>"]
+
+        subgraph SILVER["🥈 Silver Tier (Streaming Data Vault 2.0 Core)"]
+            direction TB
+            subgraph HUBS["Hub Tables (Core Entities)"]
+                H_USER["Hub_User"]
+                H_ITEM["Hub_Item"]
+                H_MERCHANT["Hub_Merchant"]
+                H_COURIER["Hub_Courier"]
+                H_ORDER["Hub_Order"]
+            end
+            subgraph LINKS["Link Tables (Interactions & Logistics)"]
+                L_INTERACTION["Link_User_Item_Interaction"]
+                L_DELIVERY["Link_Delivery_Trip"]
+            end
+            subgraph SATS["Satellite Tables (Context, State & Spatial)"]
+                S_USER_PROF["Sat_User_Profile"]
+                S_MERCHANT_LOC["Sat_Merchant_Location"]
+                S_INTERACTION["Sat_Interaction_Context_Spatial"]
+                S_COURIER_LOC["Sat_Courier_Telemetry_Spatial"]
+            end
         end
-        subgraph SATS["Satellite Tables (Context, State & Spatial)"]
-            S_USER_PROF["Sat_User_Profile"]
-            S_MERCHANT_LOC["Sat_Merchant_Location<br/><i>(Polygon, Geohash)</i>"]
-            S_INTERACTION["Sat_Interaction_Context<br/><i>(Dwell Time, User H3 Cell)</i>"]
-            S_COURIER_LOC["Sat_Courier_Telemetry<br/><i>(GPS Track, Speed, H3 res9, WKB)</i>"]
+
+        subgraph GOLD["🥇 Gold Tier (Information Marts & Serving Views)"]
+            G_DIM["Dimensions: dim_merchants, dim_users, dim_couriers"]
+            G_FCT["Spatial Facts: fct_daily_orders_spatial"]
+            G_H3["Spatial Hexagon Mart: mart_h3_demand_hourly"]
+            G_FEAT["Feature Mart: mart_user_merchant_affinity"]
         end
     end
-    class STORAGE,HUBS,LINKS,SATS vault;
+    class MEDALLION,BRONZE,SILVER,GOLD,HUBS,LINKS,SATS vault;
 
     %% 4. Governance & Versioning
-    subgraph GOVERNANCE["🔒 Data Governance & Versioning"]
+    subgraph GOVERNANCE["🔒 Data Governance & Catalog"]
         NESSIE{"<b>Apache Nessie Server</b><br/>Git-like Iceberg REST Catalog<br/><i>(Main & Zero-Copy Branches)</i>"}:::lakehouse
-        STORAGE_S3[("<b>Object Storage</b><br/>MinIO (dev) / AWS S3 (prod)<br/><i>(Iceberg + GeoParquet files)</i>")]:::lakehouse
+        STORAGE_S3[("<b>Object Storage</b><br/>MinIO (dev) / AWS S3 (prod)<br/><i>(Iceberg Parquet / GeoParquet)</i>")]:::lakehouse
     end
 
-    %% 5. DataOps & CI/CD
-    subgraph DATAOPS["⚙️ DataOps & Quality Gate"]
-        GHA["<b>GitHub Actions CI/CD</b><br/>Branch Isolation -> dbt Test -> Discard Branch"]:::cicd
+    %% 5. Batch Compute, DataOps & Orchestration
+    subgraph COMPUTE_BATCH["⚙️ Batch Compute, DataOps & Orchestration"]
+        AIRFLOW["<b>Apache Airflow</b><br/>DAG Orchestration & Maintenance Scheduler"]:::cicd
+        DBT["<b>dbt Core + StarRocks</b><br/>Silver ➔ Gold SQL Transformations & Quality Gates"]:::cicd
+        SPARK["<b>Apache Spark (PySpark) + Jupyter</b><br/>• Batch Feature Engineering<br/>• Two-Tower / DCNv2 Offline Training<br/>• Batch Item Embeddings Generation"]:::ingest
     end
 
     %% 6. OLAP Serving & Spatial Analytics Layer
@@ -114,7 +133,7 @@ flowchart TD
     %% 7. Location-Aware Recommender System & Feature Store
     subgraph RECSYS["🤖 Location-Aware Recommender System"]
         FEAT_ONLINE[("<b>Online Feature Store (Redis)</b><br/>• Real-time user intent<br/>• Courier & User H3 proximity<br/><i>(SLA < 5ms)</i>")]:::recsys
-        FEAT_OFFLINE[("<b>Offline Feature Store</b><br/>Apache Iceberg<br/><i>(Historical Embeddings & Travel Times)</i>")]:::recsys
+        FEAT_OFFLINE[("<b>Offline Feature Store</b><br/>Apache Iceberg Gold Mart<br/><i>(Historical Embeddings & Travel Times)</i>")]:::recsys
         VECTOR_DB[("<b>Vector DB (Qdrant)</b><br/>• ANN Candidate Retrieval<br/>• Spatial Bounding-Box Filter<br/><i>(Top-1000 items/stores nearby)</i>")]:::recsys
         MODEL_SERVING["<b>Model Serving Engine (Triton)</b><br/>Two-Stage Ranking (DCNv2)<br/><i>(Context + Distance + ETA + Cross Features)</i>"]:::recsys
         REC_API["<b>Location-Aware Rec API</b><br/>Gateway Service (< 50ms SLA)"]:::recsys
@@ -131,21 +150,22 @@ flowchart TD
 
     KAFKA --> FLINK
     FLINK -->|Sub-second Mutable Writes| FLUSS_TIER
-    FLINK -->|10s Exactly-Once Commits| STORAGE
+    FLINK -->|Raw Immutable Append| BRONZE
+    FLINK -->|Data Vault 2.0 Streaming Writes| SILVER
     FLINK -->|Real-Time Spatial Features| FEAT_ONLINE
 
-    STORAGE <--->|Catalog Metadata| NESSIE
-    STORAGE <---> STORAGE_S3
+    MEDALLION <--->|Catalog Metadata| NESSIE
+    MEDALLION <---> STORAGE_S3
 
-    NESSIE <--->|REST API Branching| GHA
-    GHA -->|"dbt Validate & Test"| STARROCKS
+    AIRFLOW -->|Trigger Daily / Hourly| DBT
+    AIRFLOW -->|Trigger Offline ML / Embeddings| SPARK
+    DBT -->|"Pushdown Vectorized SQL"| STARROCKS
+    SPARK -->|"Read Silver / Write Gold Features"| MEDALLION
+    SPARK -->|"Publish Item Embeddings"| VECTOR_DB
 
-    NESSIE <--->|Multi-Branch Catalog| STARROCKS
     STARROCKS -->|Sub-second Queries| BI
     STARROCKS -->|H3 Hexagon Aggregates| MAP_VIZ
-    FLINK -->|Batch Feature Generation| FEAT_OFFLINE
 
-    FEAT_OFFLINE -->|Sync Embeddings| VECTOR_DB
     FEAT_ONLINE -->|Real-Time & Geo Context| MODEL_SERVING
     VECTOR_DB -->|Top-K Nearby Candidates| MODEL_SERVING
 
@@ -352,6 +372,59 @@ hash_diff = MD5(
 
 ---
 
+### 4.4 Storage Layer Tiering: Medallion Architecture (Bronze ➔ Silver ➔ Gold)
+
+To guarantee 100% auditability, zero-loss replayability, and sub-second BI serving, the storage layer on Apache Iceberg and Apache Nessie is structured into three progressive refinement tiers:
+
+```
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│                              MEDALLION STORAGE TIERING                                 │
+├─────────────────────────┬──────────────────────────────┬───────────────────────────────┤
+│   🥉 BRONZE TIER        │       🥈 SILVER TIER         │         🥇 GOLD TIER          │
+│  (Raw Immutable Append) │    (Data Vault 2.0 Core)     │  (Information Marts & RecSys) │
+├─────────────────────────┼──────────────────────────────┼───────────────────────────────┤
+│ • Namespace: bronze.*   │ • Namespace: vault.*         │ • Namespace: gold.*           │
+│ • Tables:               │ • Raw Vault:                 │ • Dimensional Marts:          │
+│   - raw_clickstream     │   - Hubs (User, Merchant,    │   - dim_merchants, dim_users  │
+│   - raw_telemetry       │     Courier, Item, Order)    │   - fct_daily_orders_spatial  │
+│   - raw_orders_cdc      │   - Links (Interactions,     │ • Spatial Hexagon Marts:      │
+│ • Payload: Raw JSON     │     Delivery Trips)          │   - mart_h3_demand_hourly     │
+│   string + Kafka meta   │   - Sats (Spatial & Context) │ • Feature Marts:              │
+│ • Purpose: Full audit   │ • Business Vault:            │   - mart_user_affinity        │
+│   trail & replayability │   - PIT & Bridge tables      │ • Compute: dbt + StarRocks    │
+│ • Write: Flink append   │ • Write: PyFlink Streaming   │ • Serving: Sub-50ms BI & API  │
+└─────────────────────────┴──────────────────────────────┴───────────────────────────────┘
+```
+
+1. **Bronze Tier (Raw & Immutable Landing Zone):**
+   * **Location:** Iceberg namespace `bronze.*` (`s3://warehouse/bronze/`).
+   * **Schema:** Standardized ingestion envelope:
+     ```sql
+     CREATE TABLE bronze.raw_clickstream (
+         event_id STRING,
+         topic STRING,
+         partition_id INT,
+         kafka_offset BIGINT,
+         ingest_ts TIMESTAMP(3),
+         payload_json STRING
+     ) USING iceberg PARTITIONED BY (days(ingest_ts));
+     ```
+   * **Guarantee:** Zero transformation, append-only, immutable history. If downstream Flink logic or Data Vault models change, the entire lakehouse can be reprocessed and backfilled directly from Bronze.
+
+2. **Silver Tier (Enterprise Core & Data Vault 2.0):**
+   * **Location:** Iceberg namespace `vault.*` (or `silver.*`).
+   * **Data Vault Modeling:** Hubs, Links, and Satellites modeled in §4.1–§4.2.
+   * **Data Cleansing & Enrichment:** Standardized MD5 HashKeys (with `U+001F` delimiter), Uber H3 spatial discrete global grid indexing (`h3_res7`, `h3_res9`), and GeoParquet WKB Point geometries via PyFlink Python UDFs.
+   * **Role:** Single source of truth for all business entities, transactions, and historical state changes.
+
+3. **Gold Tier (Information Marts & Feature Store):**
+   * **Location:** StarRocks internal storage or Iceberg namespace `gold.*`.
+   * **Dimensional Modeling:** Kimball-style Star Schema (`dim_merchants`, `dim_users`, `fct_daily_orders_spatial`) denormalized from Silver Data Vault tables.
+   * **Spatial Aggregation Marts:** Pre-computed H3 hexagonal demand and courier density grids (`mart_h3_demand_hourly`) optimized for Deck.gl 3D heatmap rendering in <20ms.
+   * **Transformation Engine:** Transformed from Silver via **dbt Core running vectorized SQL on StarRocks**, orchestrated by Apache Airflow.
+
+---
+
 ## 5. Real-Time Ingestion & Streaming Processing (Flink & Kafka)
 
 ### 5.1 Real-Time Streaming Pipeline
@@ -485,7 +558,44 @@ To balance long-term historical accuracy with real-time user intent:
 
 ---
 
-### 8.4 Closed-Loop Feedback & Continuous Model Learning
+### 8.4 Distributed Batch ML & Feature Engineering: Apache Spark (PySpark) + Jupyter Integration
+
+While dbt + StarRocks handles SQL-centric dimensional mart creation efficiently, advanced machine learning workflows require arbitrary distributed Python computation:
+
+```
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│               DISTRIBUTED BATCH ML & DATA SCIENCE WORKFLOW (PYSPARK)                  │
+├─────────────────────────┬──────────────────────────────┬───────────────────────────────┤
+│    📓 DATA SCIENCE      │      ⚡ PYSPARK ENGINE       │      🎯 ML SERVING TARGETS    │
+│  (Exploration & Dev)    │   (Batch Features & Models)  │  (Online Stores & Inference)  │
+├─────────────────────────┼──────────────────────────────┼───────────────────────────────┤
+│ • Jupyter Notebooks     │ • PySpark on Iceberg Silver  │ • Qdrant Vector Database:     │
+│   (Interactive EDA,     │ • Complex Feature Pipeline:  │   - 128-dim dish embeddings   │
+│    feature prototyping) │   - User 30d affinity matrix │ • Redis Feature Store:        │
+│ • Branch-scoped testing │   - Spatial travel-time graph│   - Offline pre-computed LTV  │
+│   against Nessie        │ • Offline Training:          │ • Triton Inference Server:    │
+│ • Production packaging: │   - Two-Tower Candidate Rec  │   - ONNX / TensorRT DCNv2     │
+│   spark-submit scripts  │   - Batch text embeddings    │ • MLflow Model Registry:      │
+│ • Airflow scheduled     │     (HuggingFace/PyTorch)    │   - Versioned artifact store  │
+└─────────────────────────┴──────────────────────────────┴───────────────────────────────┘
+```
+
+1. **Complex Batch Feature Engineering:**
+   * **Graph & Session Metrics:** PySpark computes complex cross-entity features that cannot be expressed easily in pure SQL: user session graph trajectories, courier speed distributions under diverse weather conditions, and customer price sensitivity clusters.
+   * **Feature Destination:** Writes aggregated features back to Iceberg Gold (`gold.mart_recommender_features`) and syncs online feature sets to Redis.
+
+2. **Offline Model Training & Vector Embeddings:**
+   * **Two-Tower Neural Retrieval:** Trains the User Tower and Item/Merchant Tower on historical interaction links (`link_user_item_interaction`) and spatial delivery links (`link_delivery_trip`).
+   * **Batch Item Embeddings Generation:** Leverages PySpark with HuggingFace Transformers (`paraphrase-multilingual-MiniLM-L12-v2` or Vietnamese text embeddings) to compute 128-dimensional dense vector embeddings for all restaurant menus and dishes. Upserts vectors and metadata directly into **Qdrant Vector DB**.
+   * **Model Registry & Deployment:** Serializes trained models to ONNX / TensorRT format, registers them in **MLflow Model Registry**, and triggers blue/green model reloading on **Triton Inference Server**.
+
+3. **Data Science & Jupyter Workflow:**
+   * **Interactive Prototyping:** Data scientists launch Jupyter Notebooks connecting to the Spark cluster (via Livy or local PySpark sessions) to experiment with candidate retrieval algorithms on isolated Nessie branches (`nessie branch create exp_twotower_202609`).
+   * **Production Automation:** Validated notebook logic is refactored into production `spark-submit` scripts and scheduled via **Apache Airflow** DAGs (`dag_recsys_batch_training.py`).
+
+---
+
+### 8.5 Closed-Loop Feedback & Continuous Model Learning
 
 ```text
 [ User Interaction ] ──► [ Kafka Clickstream ] ──► [ Flink Streaming ]
@@ -548,16 +658,18 @@ To balance long-term historical accuracy with real-time user intent:
 | **Streaming Computation** | Apache Flink & PyFlink | Computes HashKeys, HashDiff, Windowing, Spatial Python UDFs, Real-time Feature extraction | [ADR-002](docs/adr/ADR-002-streaming-engine.md) |
 | **Geospatial Storage & Indexing** | Apache Sedona + Uber H3 + GeoParquet | OGC standard WKB Point storage, hierarchical discrete indexing (res 7/9), Deck.gl visualization | [ADR-014](docs/adr/ADR-014-geospatial-h3-indexing.md) |
 | **Streaming Storage Tier** | Apache Fluss | Sub-second mutable streaming buffer (<1s point lookups) & changelog tier to eliminate Iceberg small-file explosion | [ADR-013](docs/adr/ADR-013-streaming-storage-tier.md) |
-| **Storage Standard** | Apache Iceberg | Open Data Lakehouse format supporting ACID & Schema Evolution | [ADR-003](docs/adr/ADR-003-storage-format.md) |
+| **Storage Architecture** | Apache Iceberg (Medallion: Bronze ➔ Silver ➔ Gold) | Open Lakehouse format: Bronze (Raw Append), Silver (Data Vault 2.0), Gold (Information Marts) | [ADR-003](docs/adr/ADR-003-storage-format.md) |
 | **Catalog & Governance** | Apache Nessie | Git-like catalog version control (Branch, Merge, Rollback) | [ADR-004](docs/adr/ADR-004-catalog-governance.md) |
 | **Object Storage** | MinIO (dev) / AWS S3 (prod) | Scalable object storage for underlying Parquet files | [ADR-005](docs/adr/ADR-005-object-storage.md) |
-| **OLAP Engine** | StarRocks | Sub-second vectorized queries for BI, Spatial Rollups & Aggregated Views | [ADR-006](docs/adr/ADR-006-olap-engine.md) |
+| **Vectorized OLAP** | StarRocks | Sub-second vectorized queries for BI, Spatial Rollups & Gold Mart transformations | [ADR-006](docs/adr/ADR-006-olap-engine.md) |
+| **Batch SQL Transformation** | dbt Core + StarRocks | Pushdown vectorized SQL transformations from Silver to Gold Marts & Data Quality testing | [ADR-011](docs/adr/ADR-011-dataops-cicd.md) |
+| **Distributed Batch Compute & ML** | Apache Spark (PySpark) + Jupyter | Batch Feature Engineering, Two-Tower/DCNv2 offline model training, Item Embeddings generation, and DS Notebooks | [ADR-012](docs/adr/ADR-012-orchestration-ml.md) |
 | **Online Feature Store** | Redis | Low-latency real-time feature storage for RecSys (<5ms SLA) | [ADR-007](docs/adr/ADR-007-online-feature-store.md) |
 | **Vector Database** | Qdrant | Vector embeddings storage & ANN search for candidate retrieval | [ADR-008](docs/adr/ADR-008-vector-database.md) |
 | **Model Inference** | Triton Inference Server | High-throughput serving for two-stage AI ranking models | [ADR-009](docs/adr/ADR-009-model-inference.md) |
 | **Serving API Gateway** | FastAPI / Go Service | REST/gRPC API serving spatial recommendations & Deck.gl H3 hexagons (<50ms SLA) | [ADR-010](docs/adr/ADR-010-serving-api.md) |
 | **DataOps CI/CD** | GitHub Actions + dbt Core | Automated Data Quality Testing on isolated Nessie branches | [ADR-011](docs/adr/ADR-011-dataops-cicd.md) |
-| **Orchestration & ML** | Apache Airflow + MLflow | Workflow scheduling, model retraining, and ML Model Registry | [ADR-012](docs/adr/ADR-012-orchestration-ml.md) |
+| **Orchestration & ML Lifecycle** | Apache Airflow + MLflow | DAG-based scheduling for dbt, Spark, Iceberg maintenance, and ML Model Registry | [ADR-012](docs/adr/ADR-012-orchestration-ml.md) |
 
 ---
 
@@ -590,7 +702,19 @@ To validate and benchmark the performance of this platform end-to-end (from Kafk
 
 ### 13.1 Recommended Industry Benchmark Datasets
 
-1. **Alibaba / Taobao User Behavior Dataset (High-Throughput Real-Time Streaming Benchmark):**
+1. **Grab-Posisi GPS Trajectory Dataset (Official Grab Spatial Telemetry Benchmark):**
+   * **Source & Scale:** Published by Grab AI for Southeast Asia (Singapore & Jakarta), consisting of over 1 million courier/driver GPS trajectories with high-frequency pings.
+   * **Key Attributes:** `trj_id`, `driving_mode` (motorcycle/car), `pingtimestamp`, `rawlat`, `rawlng`, `bearing`, `speed`, `accuracy`.
+   * **Role in ValoStream:** Directly maps to `events.telemetry` and `Sat_Courier_Telemetry_Spatial`, providing ground-truth speed, bearing, and trajectory curves across urban street networks for Uber H3 spatial discrete global grid indexing and real-time fleet tracking.
+
+2. **Yelp Open Dataset / ShopeeFood & Zomato Restaurant Datasets (Merchants, Menus & Embeddings):**
+   * **Scale:** 150,000+ businesses, 1M+ dishes/menu items, user reviews, cuisines, prices, ratings, and GPS coordinates.
+   * **Dataset Layer Mapping:**
+     * Restaurant metadata $\rightarrow$ `Hub_Merchant`, `Sat_Merchant_Location` (latitude, longitude, H3 cell, geohash).
+     * Dishes & Menu Items $\rightarrow$ `Hub_Item`, `Sat_Item_Metadata` (dish name, price, cuisine category, description).
+     * Item text descriptions $\rightarrow$ PySpark / HuggingFace embedding pipeline to generate 128-dim dense vectors for **Qdrant Vector DB**.
+
+3. **Alibaba / Taobao User Behavior Dataset (High-Throughput Real-Time Streaming Benchmark):**
    * **Scale:** 100,150,807 user interaction events (~3.5 GB compressed, 10 GB raw CSV).
    * **Target SLA Test:** 10,000 to 100,000 events/sec streaming through Kafka, Flink SQL, and Redis Feature Store.
    * **Direct Download Command:**
@@ -599,7 +723,7 @@ To validate and benchmark the performance of this platform end-to-end (from Kafk
      unzip UserBehavior.csv.zip
      ```
 
-2. **H&M Personalized Fashion Recommendations Dataset (Data Vault 2.0 & Vector Embeddings):**
+4. **H&M Personalized Fashion Recommendations Dataset (Data Vault 2.0 & Vector Embeddings):**
    * **Scale:** 31.7M transactions, 1.3M users, 105k items.
    * **Dataset Layer Mapping:**
      * `customers.csv` $\rightarrow$ CDC User updates (`Hub_User`, `Sat_User_Profile`).
@@ -609,10 +733,6 @@ To validate and benchmark the performance of this platform end-to-end (from Kafk
      ```bash
      kaggle competitions download -c h-and-m-personalized-fashion-recommendations
      ```
-
-3. **Amazon Reviews 2023 Dataset (Multi-Category Metadata & Cold-Start Benchmark):**
-   * Rich user reviews, ratings, and product catalog metadata for cold-start and collaborative filtering benchmarks.
-   * **HuggingFace Download:** `datasets.load_dataset("McAuley-Lab/Amazon-Reviews-2023", "raw_review_Electronics")`
 
 ---
 
@@ -706,6 +826,86 @@ During benchmark execution, key performance indicators (KPIs) are evaluated acro
    * **Redis Read SLA:** $< 5\text{ms}$ (p99).
    * **StarRocks OLAP Query SLA:** $< 100\text{ms}$ on PIT aggregate views.
    * **Recommender Serving API SLA:** $< 50\text{ms}$ (p99 end-to-end response time).
+
+---
+
+## 14. Observability & SLOs
+
+### 14.1 Monitoring Stack
+
+| Component | Technology | Role |
+| :--- | :--- | :--- |
+| **Metrics Collection** | Prometheus | Scrapes Flink, StarRocks, and Serving API metrics every 15s |
+| **Dashboards** | Grafana | Pre-provisioned "ValoStream Platform Overview" dashboard |
+| **Alerting** | Prometheus AlertManager | Threshold-based alerts per SLI (see §14.2) |
+
+### 14.2 Service Level Indicators & Objectives
+
+| Layer | SLI | SLO | Alert Threshold |
+| :--- | :--- | :--- | :--- |
+| **Ingestion** | Kafka consumer lag (messages) | < 10,000 | > 50,000 for 5 min |
+| **Ingestion** | Kafka producer error rate | < 0.1% | > 1% for 1 min |
+| **Streaming** | Flink checkpoint duration | < 60s | > 120s |
+| **Streaming** | Flink checkpoint failure rate | 0% | Any failure |
+| **Streaming** | Per-table freshness (time since last commit) | < 5 min | > 10 min |
+| **Streaming Storage** | Fluss write latency | < 1s | > 5s |
+| **Storage** | Iceberg data file count per table | < 10,000 | > 20,000 |
+| **Storage** | Nessie API latency (p99) | < 100 ms | > 500 ms |
+| **OLAP** | StarRocks query latency (p99) | < 100 ms | > 500 ms |
+| **Feature Store** | Redis read latency (p99) | < 5 ms | > 10 ms |
+| **Recommender** | End-to-end API latency (p99) | < 50 ms | 2× SLA |
+
+### 14.3 Iceberg Table Maintenance Schedule
+
+| Operation | Frequency | Scope | Strategy |
+| :--- | :--- | :--- | :--- |
+| `expire_snapshots` | Every 6 hours | Per table | Retain last 7 days, run on `main` branch |
+| `rewrite_data_files` | Every 4 hours | Per table | Bin-pack (target 256 MB), run on Nessie side branch ([ADR-015](docs/adr/ADR-015-concurrent-writer-strategy.md)) |
+| `rewrite_manifests` | Daily | Per table | Compact manifest files |
+| Nessie GC | Weekly | Global | Nessie-native garbage collection |
+
+---
+
+## 15. Capacity Planning & Cost Envelope
+
+### 15.1 Component Sizing (Scaled for 100k events/sec target)
+
+| Component | Sizing Dimension | Value | Calculation |
+| :--- | :--- | :--- | :--- |
+| **Kafka** | Partitions per topic | 16 | ≥ Flink parallelism |
+| **Kafka** | Broker count | 3 | Replication factor 3 |
+| **Kafka** | Retention | 7 days | ~6 TB at 100k msg/s × 1 KB avg |
+| **Flink** | TaskManager count | 4 | parallelism 16 / 4 slots per TM |
+| **Flink** | TaskManager memory | 8 GB heap + 16 GB managed | RocksDB state for 50 GB per TM |
+| **Flink** | Checkpoint storage | S3 (MinIO) | ~2 GB per checkpoint (incremental) |
+| **Fluss** | TabletServer count | 3 | 1 per Fluss shard for HA |
+| **Fluss** | TabletServer memory | 4 GB each | In-memory LSM-tree + WAL buffer |
+| **Iceberg / S3** | Monthly PUT requests | ~86k/day at 30s checkpoints | 6 tables × 2,880 commits/day × $0.005/1000 PUTs |
+| **Iceberg / S3** | Data growth | ~50 GB/day | At 100k events/s × 500 bytes avg |
+| **StarRocks** | BE memory | 16–32 GB | Vectorized scan buffer + cache |
+| **Redis** | Memory | 2 GB | 1.3M users × 500 bytes/user + overhead |
+| **Qdrant** | Memory | 2 GB | 1M vectors × 128 dims × 4 bytes + HNSW index |
+| **Triton** | GPU | 1× T4 | DCNv2 batch inference at 100 RPS |
+| **Prometheus** | Disk | 5 GB | 7-day retention, 15s scrape interval |
+| **Grafana** | Memory | 256 MB | Dashboard rendering |
+
+### 15.2 Monthly Cost Estimate (AWS, On-Demand)
+
+| Cost Driver | Instance / Service | Monthly Estimate |
+| :--- | :--- | :--- |
+| **Kafka Cluster** | 3× m5.xlarge (4 vCPU, 16 GB) | ~$460 |
+| **Flink Cluster** | 4× m5.2xlarge TM + 1× m5.xlarge JM | ~$1,100 |
+| **Fluss Cluster** | 3× m5.large (2 vCPU, 8 GB) + 1× m5.large Coordinator | ~$310 |
+| **Object Storage (S3)** | 1.5 TB storage + API calls | ~$50 |
+| **StarRocks** | 1× r5.2xlarge FE + 2× r5.2xlarge BE | ~$1,350 |
+| **Redis** | 1× cache.r5.large | ~$110 |
+| **Qdrant** | 1× m5.large | ~$75 |
+| **Triton** | 1× g4dn.xlarge (T4 GPU) | ~$380 |
+| **Monitoring** | Prometheus + Grafana on t3.medium | ~$30 |
+| **Total** | | **~$3,865/month** |
+
+> [!NOTE]
+> Estimates assume on-demand pricing in us-east-1. Reserved instances or Spot pricing can reduce costs by 30–60%. Dev/staging environments use Docker Compose on a single machine at near-zero cost.
 
 ---
 

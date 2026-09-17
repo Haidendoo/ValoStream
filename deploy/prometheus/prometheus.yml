@@ -1,0 +1,44 @@
+# ValoStream Prometheus Configuration
+# Scrapes metrics from all platform services
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # ── Prometheus self-monitoring ──
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # ── Apache Flink Metrics (PrometheusReporter) ──
+  - job_name: "flink"
+    static_configs:
+      - targets:
+          - "valostream-flink-jobmanager:9249"
+          - "valostream-flink-taskmanager:9249"
+        labels:
+          cluster: "valostream"
+
+  # ── StarRocks BE Metrics ──
+  - job_name: "starrocks"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["valostream-starrocks:8040"]
+        labels:
+          component: "be"
+
+  # ── ValoStream Serving API (FastAPI + prometheus_client) ──
+  - job_name: "serving-api"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["host.docker.internal:8000"]
+        labels:
+          service: "serving-api"
+    # This target may not always be available, so increase timeout
+    scrape_timeout: 10s
+
+  # ── Redis Exporter (if deployed) ──
+  # - job_name: "redis"
+  #   static_configs:
+  #     - targets: ["redis-exporter:9121"]

@@ -81,6 +81,8 @@ services:
         jobmanager.rpc.address: valostream-flink-jobmanager
         parallelism.default: 2
         execution.checkpointing.interval: 30s
+        metrics.reporter.prom.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+        metrics.reporter.prom.port: 9249
     volumes:
       - ../flink/lib/flink-sql-connector-kafka-3.1.0-1.18.jar:/opt/flink/lib/flink-sql-connector-kafka-3.1.0-1.18.jar
       - ../flink/lib/iceberg-flink-runtime-1.18-1.5.2.jar:/opt/flink/lib/iceberg-flink-runtime-1.18-1.5.2.jar
@@ -111,6 +113,8 @@ services:
         jobmanager.rpc.address: valostream-flink-jobmanager
         taskmanager.numberOfTaskSlots: 4
         parallelism.default: 2
+        metrics.reporter.prom.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+        metrics.reporter.prom.port: 9249
     volumes:
       - ../flink/lib/flink-sql-connector-kafka-3.1.0-1.18.jar:/opt/flink/lib/flink-sql-connector-kafka-3.1.0-1.18.jar
       - ../flink/lib/iceberg-flink-runtime-1.18-1.5.2.jar:/opt/flink/lib/iceberg-flink-runtime-1.18-1.5.2.jar
@@ -264,10 +268,43 @@ services:
     volumes:
       - shared-tmpfs:/tmp/fluss
 
+  # ── Observability Stack ──────────────────────────────────────────────────
+
+  # 14. Prometheus Metrics Server
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: valostream-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=7d"
+      - "--web.enable-lifecycle"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # 15. Grafana Dashboards
+  grafana:
+    image: grafana/grafana:latest
+    container_name: valostream-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=valostream
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+
 volumes:
   shared-tmpfs:
     driver: local
     driver_opts:
       type: "tmpfs"
       device: "tmpfs"
-
