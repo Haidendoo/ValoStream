@@ -7,7 +7,7 @@ import os
 import time
 from typing import Any, Dict, List, Literal, Optional
 
-from fastapi import FastAPI, HTTPException, Query, Request, Response
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 import h3
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
@@ -16,8 +16,10 @@ import pymysql
 
 if __package__:
     from .queries import ServingSource
+    from .releases import read_state
 else:
     from queries import ServingSource
+    from releases import read_state
 
 log = logging.getLogger(__name__)
 SOURCE = ServingSource(
@@ -25,9 +27,24 @@ SOURCE = ServingSource(
     vault_schema=os.getenv("STARROCKS_VAULT_SCHEMA", "vault"),
     mart_schema=os.getenv("STARROCKS_MART_SCHEMA") or None,
 )
+RELEASE_FILE = os.getenv("STARROCKS_RELEASE_FILE") or None
+if RELEASE_FILE and SOURCE.mart_schema:
+    raise ValueError("Choose STARROCKS_RELEASE_FILE or STARROCKS_MART_SCHEMA, not both")
 
 REQUEST_COUNT = Counter("valostream_api_requests_total", "Serving requests", ["endpoint", "status"])
 REQUEST_LATENCY = Histogram("valostream_api_request_duration_seconds", "Serving latency", ["endpoint"])
+
+
+def get_source():
+    # Resolve once per request. Fallback queries must use this same snapshot.
+    if RELEASE_FILE is None:
+        return SOURCE
+    try:
+        state = read_state(RELEASE_FILE)
+        return ServingSource(mart_schema=state.active.schema)
+    except (OSError, ValueError, TypeError, KeyError) as error:
+        log.exception("Serving release manifest unavailable")
+        raise HTTPException(status_code=503, detail="Serving release unavailable") from error
 
 
 def get_connection():
@@ -125,14 +142,15 @@ class HexagonResponse(BaseModel):
 
 
 @app.get("/healthz")
-def health_check():
+def health_check(source: ServingSource = Depends(get_source)):
     try:
         # Check the active source, not just the availability of a SQL connection.
         with closing(get_connection()) as conn, conn.cursor() as cursor:
-            for table in SOURCE.readiness_tables():
+            for table in source.readiness_tables():
                 cursor.execute(f"SELECT * FROM {table} LIMIT 0")
         return {"status": "ok", "starrocks": "connected", "lakehouse": "reachable",
-                "engine": "vectorized-olap", "source": "marts" if SOURCE.mart_schema else "vault"}
+                "engine": "vectorized-olap", "source": "marts" if source.mart_schema else "vault",
+                "mart_schema": source.mart_schema}
     except Exception as error:
         log.exception("Serving source readiness failed")
         raise HTTPException(status_code=503, detail="Serving data source unavailable") from error
@@ -145,15 +163,16 @@ def get_recommendations(
     lon: float = Query(106.7000, ge=-180, le=180),
     limit: int = Query(10, ge=1, le=50),
     use_h3_filter: bool = Query(False, description="Restrict to H3 neighbors; fall back globally if empty"),
+    source: ServingSource = Depends(get_source),
 ):
     start = time.perf_counter()
     try:
         cell = h3.latlng_to_cell(lat, lon, 7)
         neighbors = [int(value, 16) for value in h3.grid_disk(cell, 1)] if use_h3_filter else []
-        rows = query_rows(*SOURCE.recommendations(lat, lon, limit, neighbors))
+        rows = query_rows(*source.recommendations(lat, lon, limit, neighbors))
         if not rows and use_h3_filter:
             # The first connection has already closed; preserve the full request latency.
-            rows = query_rows(*SOURCE.recommendations(lat, lon, limit))
+            rows = query_rows(*source.recommendations(lat, lon, limit))
         recommendations = [MerchantRecommendation(
             merchant_id=row["merchant_id"], rank=rank, score=float(row["score"]),
             interaction_count=int(row["interaction_count"]),
@@ -175,12 +194,13 @@ def get_spatial_hexagons(
     entity: Literal["interactions", "couriers"] = "interactions",
     resolution: int = Query(7, description="Supported H3 resolutions: 7 and 9"),
     limit: int = Query(100, ge=1, le=500),
+    source: ServingSource = Depends(get_source),
 ):
     if resolution not in (7, 9):
         raise HTTPException(status_code=422, detail="H3 resolution must be 7 or 9")
     start = time.perf_counter()
     try:
-        rows = query_rows(*SOURCE.hexagons(entity, resolution, limit))
+        rows = query_rows(*source.hexagons(entity, resolution, limit))
         features = []
         for row in rows:
             if not row.get("h3_hex"):
@@ -202,10 +222,11 @@ def get_spatial_hexagons(
 def get_live_couriers(
     status: Optional[Literal["to_merchant", "at_merchant", "delivering", "idle"]] = None,
     limit: int = Query(50, ge=1, le=200),
+    source: ServingSource = Depends(get_source),
 ):
     start = time.perf_counter()
     try:
-        rows = query_rows(*SOURCE.live_couriers(status, limit))
+        rows = query_rows(*source.live_couriers(status, limit))
         couriers = [{
             "courier_id": row["courier_id"], "latitude": float(row["latitude"]),
             "longitude": float(row["longitude"]), "speed_kmh": float(row["speed_kmh"] or 0),
@@ -221,11 +242,11 @@ def get_live_couriers(
 
 
 @app.get("/stats")
-def lakehouse_stats():
+def lakehouse_stats(source: ServingSource = Depends(get_source)):
     """Counts for the active source: raw vault or normalized staging tables."""
     try:
         sql = " UNION ALL ".join(
-            f"SELECT '{name}' AS tbl, COUNT(*) AS cnt FROM {table}" for name, table in SOURCE.tables().items()
+            f"SELECT '{name}' AS tbl, COUNT(*) AS cnt FROM {table}" for name, table in source.tables().items()
         )
         return {row["tbl"]: int(row["cnt"]) for row in query_rows(sql)}
     except Exception as error:

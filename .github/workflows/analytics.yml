@@ -6,6 +6,7 @@ on:
       - 'analytics/**'
       - 'ops/*analytics*.py'
       - 'ops/nessie_quality_gate.py'
+      - 'ops/refresh_marts.py'
       - 'schemas/**'
       - 'flink/pyflink/**'
       - 'tests/analytics/**'
@@ -45,6 +46,8 @@ jobs:
         run: PYTHONPATH=. python tests/analytics/nessie_smoke.py
       - name: Verify serving responses against real vault fixtures and marts
         run: PYTHONPATH=. python tests/serving/mart_smoke.py
+      - name: Verify release publication, rejection, and rollback
+        run: PYTHONPATH=. python tests/analytics/release_smoke.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -56,6 +59,8 @@ jobs:
             analytics/target/nessie-smoke/logs/dbt.log
             analytics/target/api-smoke/run_results.json
             analytics/target/api-smoke/logs/dbt.log
+            analytics/target/release-smoke/**/run_results.json
+            analytics/target/release-smoke/**/logs/dbt.log
       - name: Stop test service
         if: always()
         run: docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.analytics-ci.yml down

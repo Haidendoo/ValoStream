@@ -91,20 +91,21 @@ DBT_SOURCE_CATALOG=nessie_main DBT_SOURCE_SCHEMA=vault \
 
 All models use dbt `table` materialization and rebuild on each successful run.
 They are persisted tables, not automatically refreshed materialized views.
-There is no installed refresh scheduler or freshness SLA yet. A future five-minute
-schedule is the target for current positions and interaction/H3/affinity marts;
-until scheduled and measured, freshness is only as recent as the last build.
+The optional [release runner](mart-releases.md) provides periodic rebuilds with a
+five-minute default delay after each attempt. No scheduler is installed by default
+and there is no measured freshness SLA; data is as recent as the last build.
 The StarRocks adapter drops/recreates tables, so builds are not atomic publication
 of the whole model graph. Use an isolated output schema for validation. The serving
 API can opt into a completed, validated schema with `STARROCKS_MART_SCHEMA`; see
 [serving configuration](serving-marts.md). Raw-vault mode remains the default.
-Automatic publication and refresh are not implemented.
+The release runner can publish validated snapshots through a local manifest;
+APIs using `STARROCKS_RELEASE_FILE` adopt updates on their next request.
 
 ## CI and validation
 
 `.github/workflows/analytics.yml` runs on model, source schema, streaming schema,
 gate, serving, test, and Compose changes. It starts StarRocks 4.1.4, Nessie, and MinIO,
-executes the native, branch-backed, and API response checks, uploads results, and tears down
+executes the native, branch-backed, API, and release lifecycle checks, uploads results, and tears down
 services. It requires no production credentials. The event-contract workflow
 continues checking Kafka schema compatibility independently.
 
@@ -114,14 +115,15 @@ StarRocks 4.1.4, and PyIceberg 0.12.0:
 - Ten models and 97 deterministic data tests passed against native fixtures and
   real Nessie/Iceberg/MinIO sources.
 - All four corruption scenarios were rejected by their intended tests.
-- Seven unit tests cover resource ownership, cleanup after failures, and identifiers.
+- Unit tests cover resource ownership, cleanup after failures, identifiers, and
+  release publication/rollback failures.
 - Fixture assertions confirm three interactions despite replayed input, correct
   H3 counts/dwell totals, latest courier positions despite out-of-order input, and
   affinity totals.
 
 This is correctness validation on tiny synthetic datasets, not a latency/load
-benchmark. Production raw-vault deduplication, bitemporal PIT, async refresh,
-statistical monitoring on a seven-day baseline, PII erasure, and atomic serving
+benchmark. Production raw-vault deduplication, bitemporal PIT, incremental refresh,
+statistical monitoring on a seven-day baseline, PII erasure, and distributed serving
 publication remain pending. GitHub-hosted execution of the new workflow has not
 been observed yet.
 

@@ -86,7 +86,8 @@ ValoStream is an enterprise data platform that eliminates the gap between real-t
   - **Step 4.3 deterministic gate implemented:** 97 dbt data tests cover keys, relationships, required fields, source column types, and rollup correctness. CI tests native fixtures and an isolated Nessie branch; temporary branches are discarded without merging.
   - **Step 4.4 initial models implemented:** Six normalized staging tables, latest courier positions, interaction facts, hourly H3 demand (resolutions 7/9), and user/merchant affinity. Ten models passed against real Nessie/Iceberg/MinIO sources; four deliberate corruption cases were rejected. See [analytics runbook](docs/analytics-quality-gate.md).
   - **Serving integration implemented:** Optional validated mart schema, current courier positions, weighted H3 aggregates, score-ordered recommendations, and source readiness checks. API tests cover both mart and raw-vault modes against StarRocks. See [serving runbook](docs/serving-marts.md).
-  - Crypto-shredding, scheduled statistical monitoring, bitemporal PIT, automatic refresh, and serving publication remain pending.
+  - **Managed mart releases implemented:** Frozen Nessie input, dbt validation, periodic rebuild loop, request-consistent API switching, and rollback using a local manifest. See [release runbook](docs/mart-releases.md).
+  - Crypto-shredding, scheduled statistical monitoring, bitemporal PIT, automatic release retention, and distributed serving publication remain pending.
 - [ ] **Step 5: Feature Store & Recommender Engine**
   - Two-stage ranking pipeline (Qdrant ANN + Triton DCNv2) with streaming cold-start item embeddings.
 - [ ] **Step 6: Chaos & Load Testing**

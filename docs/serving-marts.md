@@ -1,19 +1,25 @@
 # Serving validated marts
 
-The FastAPI service supports two sources, selected once at process startup:
+The FastAPI service supports static sources and a managed release pointer:
 
 | Configuration | Source |
 | --- | --- |
-| `STARROCKS_MART_SCHEMA` unset or empty | Existing raw vault: `STARROCKS_CATALOG.STARROCKS_VAULT_SCHEMA` (defaults `nessie_main.vault`) |
+| Neither release setting configured | Existing raw vault: `STARROCKS_CATALOG.STARROCKS_VAULT_SCHEMA` (defaults `nessie_main.vault`) |
 | `STARROCKS_MART_SCHEMA=<release_schema>` | Completed dbt tables in `default_catalog.<release_schema>` |
+| `STARROCKS_RELEASE_FILE=/absolute/path/active.json` | Managed mart release, resolved once per request; new requests see published updates without a restart |
 
-Both modes use `STARROCKS_HOST`, `STARROCKS_PORT`, `STARROCKS_USER`, and
+Choose only one of `STARROCKS_MART_SCHEMA` and `STARROCKS_RELEASE_FILE`.
+All modes use `STARROCKS_HOST`, `STARROCKS_PORT`, `STARROCKS_USER`, and
 `STARROCKS_PASSWORD`, defaulting to `localhost:9030`, `root`, and an empty password
 for local development. Catalog/schema identifiers must start with a letter or
 underscore, contain only letters, digits, and underscores, and be at most 64
 characters. Invalid identifiers fail startup.
 
-## Local start
+For automatic validated builds and rollback, use the
+[managed release runner](mart-releases.md). The static configuration below remains
+available for manually built development schemas.
+
+## Static local start
 
 From the repository root, use Python 3.12 and an existing StarRocks catalog with
 the six source tables documented in the [analytics runbook](analytics-quality-gate.md):
@@ -38,8 +44,9 @@ Models use dbt `table` materialization, which drops/recreates tables. Never rebu
 the schema used by running API workers. Build and validate a new schema, configure
 new workers to use it, check `/healthz`, and switch traffic using your deployment
 system. Keep the old schema while old workers drain and for rollback. A rolling
-deployment can temporarily serve both snapshots. Automatic promotion, refresh,
-retention, and atomic traffic switching are not implemented.
+deployment can temporarily serve both snapshots. The managed release runner
+automates builds and pointer publication on one host; retention and distributed
+traffic switching remain deployment concerns.
 
 For a stable input, build against a catalog pinned to a completed Nessie snapshot.
 Reading the mutable `nessie_main` catalog during ingestion does not guarantee that
@@ -64,7 +71,8 @@ up its output; its temporary schema must not be used as a serving release.
 - `/stats` retains the six legacy table keys. Values are raw row counts in vault
   mode and normalized staging counts in mart mode, so these counts can differ.
 - `/healthz` checks that all tables needed by the active source can be resolved
-  through StarRocks and reports `source: marts` or `source: vault`. Failure returns
+  through StarRocks and reports `source: marts` or `source: vault`, plus the selected
+  `mart_schema` (null in vault mode). Failure returns
   503. It does not scan source data files, run quality tests, or check freshness.
 - `/metrics` records request counts by route/status and latency by route. Query
   strings and user identifiers are excluded from metric labels.
@@ -73,8 +81,8 @@ Database errors return generic 503 responses; detailed exceptions stay in server
 logs. Connections close on success, failure, and before recommendation fallback.
 Invalid coordinates, entities, statuses, and limits return 422 before any query.
 
-Mart data is as recent as its last successful build. This change adds no scheduler
-or measured freshness/latency SLA. Raw mode removes exact consumption replays,
+Mart data is as recent as its last successful build. The optional release runner
+has a periodic refresh loop; there is no measured freshness/latency SLA. Raw mode removes exact consumption replays,
 but does not provide the mart quality gate's rejection of conflicting payloads.
 
 ## Verification
@@ -86,8 +94,9 @@ docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.analytics-c
 make -C deploy serving-check PYTHON="$PWD/.venv-analytics/bin/python"
 ```
 
-Thirteen API/query unit tests cover input validation, error handling, connection
-cleanup, fallback, readiness, ranking SQL, and request metrics. The integration
+Fifteen API/query unit tests cover input validation, error handling, connection
+cleanup, fallback, readiness, ranking SQL, request metrics, and release selection
+during publication or manifest failure. The integration
 check creates two uniquely named native StarRocks databases, builds all ten dbt
 models with 97 data tests, then exercises real HTTP responses in both source modes.
 Fixtures include replayed hubs/links/events, out-of-order courier positions,

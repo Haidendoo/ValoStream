@@ -156,6 +156,7 @@ activemq-data/
 analytics/logs/
 analytics/dbt_packages/
 analytics/.user.yml
+var/releases/
 env/
 venv/
 ENV/

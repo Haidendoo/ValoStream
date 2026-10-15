@@ -16,12 +16,12 @@ from .analytics_common import ROOT, connection, identifier, run_dbt
 
 
 @contextmanager
-def isolated_catalog(conn, session, nessie_url, iceberg_url, source_ref="main", source_schema="vault"):
+def frozen_catalog(conn, session, nessie_url, iceberg_url, source_ref="main", source_schema="vault"):
+    """Own a temporary branch/catalog, leaving output ownership to the caller."""
     source_schema = identifier(source_schema)
     suffix = uuid.uuid4().hex
     branch = f"ci_{suffix}"
     catalog = identifier(f"vs_ci_{suffix}")
-    output = identifier(f"vs_out_{suffix}")
 
     def request(method, path, **kwargs):
         response = session.request(method, nessie_url.rstrip("/") + path, timeout=20, **kwargs)
@@ -58,10 +58,22 @@ def isolated_catalog(conn, session, nessie_url, iceberg_url, source_ref="main", 
             os.environ.get("S3_ACCESS_KEY", "admin"), os.environ.get("S3_SECRET_KEY", "password123"),
         ))
         stack.callback(sql, f"DROP CATALOG {catalog}")
-        sql(f"CREATE DATABASE {output}")
-        stack.callback(sql, f"DROP DATABASE {output}")
-        print(f"Testing Nessie {source_ref}@{parent['hash']} via {branch}; output={output}", flush=True)
-        yield {"DBT_SOURCE_CATALOG": catalog, "DBT_SOURCE_SCHEMA": source_schema, "DBT_OUTPUT_SCHEMA": output}
+        print(f"Frozen Nessie {source_ref}@{parent['hash']} via {branch}", flush=True)
+        yield {"catalog": catalog, "schema": source_schema, "ref": source_ref, "hash": parent["hash"]}
+
+
+@contextmanager
+def isolated_catalog(conn, session, nessie_url, iceberg_url, source_ref="main", source_schema="vault"):
+    with frozen_catalog(conn, session, nessie_url, iceberg_url, source_ref, source_schema) as snapshot:
+        output = identifier(f"vs_out_{uuid.uuid4().hex}")
+        with conn.cursor() as cursor:
+            cursor.execute(f"CREATE DATABASE {output}")
+        try:
+            yield {"DBT_SOURCE_CATALOG": snapshot["catalog"], "DBT_SOURCE_SCHEMA": snapshot["schema"],
+                   "DBT_OUTPUT_SCHEMA": output}
+        finally:
+            with conn.cursor() as cursor:
+                cursor.execute(f"DROP DATABASE {output}")
 
 
 def main():

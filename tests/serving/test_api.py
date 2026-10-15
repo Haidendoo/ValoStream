@@ -1,4 +1,6 @@
 from contextlib import ExitStack
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest import TestCase, main
 from unittest.mock import MagicMock, patch
 
@@ -7,6 +9,7 @@ import pymysql
 
 from serving import app as api
 from serving.queries import ServingSource
+from serving.releases import Release, ReleaseState, utc_now, write_state
 
 
 class ServingTest(TestCase):
@@ -15,6 +18,7 @@ class ServingTest(TestCase):
         self.addCleanup(self.stack.close)
         self.factory = self.stack.enter_context(patch.object(api, "get_connection"))
         self.stack.enter_context(patch.object(api, "SOURCE", ServingSource(mart_schema="release_test")))
+        self.stack.enter_context(patch.object(api, "RELEASE_FILE", None))
         self.stack.enter_context(patch.object(api.log, "exception"))
         self.conn = self.factory.return_value
         self.cursor = self.conn.cursor.return_value.__enter__.return_value
@@ -112,6 +116,43 @@ class ServingTest(TestCase):
         text = self.client.get("/metrics").text
         self.assertIn('valostream_api_requests_total{endpoint="/spatial/couriers",status="200"}', text)
         self.assertNotIn('endpoint="/spatial/couriers?limit=', text)
+
+    def test_release_switch_is_seen_next_request_but_not_during_fallback(self):
+        first = Release("vs_release_" + "a" * 32, "main", "abc", "vault", utc_now())
+        second = Release("vs_release_" + "b" * 32, "main", "def", "vault", utc_now())
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "active.json"
+            write_state(path, ReleaseState(first, None, utc_now()))
+
+            def execute(*args):
+                # Publish between the neighborhood query and its global fallback.
+                write_state(path, ReleaseState(second, first, utc_now()))
+
+            self.cursor.execute.side_effect = execute
+            with patch.object(api, "RELEASE_FILE", path):
+                response = self.client.get("/recommendations?user_id=u&use_h3_filter=true")
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(self.cursor.execute.call_count, 2)
+                for call in self.cursor.execute.call_args_list:
+                    self.assertIn(first.schema, call.args[0])
+                    self.assertNotIn(second.schema, call.args[0])
+                response = self.client.get("/healthz")
+                self.assertEqual(response.json()["mart_schema"], second.schema)
+
+    def test_unavailable_or_corrupt_release_returns_503_without_raw_fallback(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "active.json"
+            with patch.object(api, "RELEASE_FILE", path):
+                for payload in (None, "{", "[]", '{"version": 99}'):
+                    if payload is not None:
+                        path.write_text(payload)
+                    for url in ("/healthz", "/stats", "/spatial/couriers", "/spatial/hexagons",
+                                "/recommendations?user_id=u"):
+                        response = self.client.get(url)
+                        self.assertEqual(response.status_code, 503, response.text)
+                        self.assertNotIn(str(path), response.text)
+                self.assertEqual(self.client.get("/metrics").status_code, 200)
+        self.factory.assert_not_called()
 
 
 class QueryTest(TestCase):

@@ -1,6 +1,7 @@
 .PHONY: up down restart status logs clean minio-init schema-check schema-register test-contracts test-contracts-integration
 .PHONY: analytics-check analytics-nessie-check quality-gate
 .PHONY: serving-test serving-check
+.PHONY: release-check
 
 PYTHON ?= python3
 SCHEMA_REGISTRY_URL ?= http://localhost:8082
@@ -31,6 +32,9 @@ serving-test:
 
 serving-check:
 	cd .. && PYTHONPATH=. $(PYTHON) tests/serving/mart_smoke.py
+
+release-check:
+	cd .. && PYTHONPATH=. $(PYTHON) tests/analytics/release_smoke.py
 
 up:
 	docker compose up -d

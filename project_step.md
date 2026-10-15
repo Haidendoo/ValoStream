@@ -3,7 +3,7 @@
 **Author:** ValoStream Engineering Team
 **Date:** 2026-09-15
 **Source:** Architecture Review (31 findings against `archi.md` at commit `eb4c50e`)
-**Status:** Steps 0–3 previously completed; Step 4 schema ingestion, deterministic Nessie/dbt gate, and initial marts validated; erasure, statistical monitors, PIT/refresh, and serving publication pending
+**Status:** Steps 0–3 previously completed; Step 4 schema ingestion, deterministic Nessie/dbt gate, initial marts, and local release publication implemented; erasure, statistical monitors, PIT, retention, and distributed publication pending
 
 ---
 
@@ -947,6 +947,7 @@ Gold Tier (StarRocks / Iceberg `gold.*`):
 **Deliverables:**
 - [x] Initial dbt transformations for current courier positions and interaction/H3/affinity marts over the six existing raw tables
 - [x] Serving API opt-in for validated mart schemas, with raw-vault compatibility and real StarRocks response tests
+- [x] Frozen-source release builds, periodic refresh loop, atomic local manifest publication, request-consistent API switching, and rollback
 - [ ] StarRocks materialized views for PIT tables
 - [ ] Current-satellite materialized views per historized satellite
 - [ ] StarRocks H3 spatial rollup materialized views for Deck.gl / Kepler.gl
@@ -956,12 +957,12 @@ Gold Tier (StarRocks / Iceberg `gold.*`):
 
 The initial models use persisted dbt `table` materialization, rebuilt per run.
 This provides a consumption layer and repeatable quality checks; it does not yet
-provide asynchronous materialized views, bitemporal PIT, a refresh scheduler, or a
-measured staleness SLA. Current courier positions and H3 rollups are tested on
-synthetic native/Iceberg data. The serving API can select a validated mart schema
-at startup; raw-vault mode remains the default. Both query modes have API response
-checks on StarRocks. Automatic publication and refresh remain pending; see
-[serving runbook](docs/serving-marts.md).
+provide asynchronous materialized views, bitemporal PIT, or a measured staleness
+SLA. Current courier positions and H3 rollups are tested on synthetic native/Iceberg
+data. The serving API can select a static mart schema or follow a local release
+manifest per request; raw-vault mode remains the default. The optional refresh loop
+builds and publishes validated snapshots with rollback. Automatic retention and
+multi-host coordination remain pending; see [release runbook](docs/mart-releases.md).
 
 **Acceptance criteria:**
 - PIT query returns in < 100 ms on StarRocks

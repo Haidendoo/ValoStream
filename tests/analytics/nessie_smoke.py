@@ -1,6 +1,6 @@
 """Create synthetic Iceberg fixtures on a disposable branch; run the real Nessie/dbt gate."""
 
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 from datetime import datetime
 import json
 import os
@@ -17,7 +17,8 @@ from ops.check_analytics import assert_marts
 from ops.nessie_quality_gate import isolated_catalog
 
 
-def main():
+@contextmanager
+def iceberg_fixtures():
     base = os.environ.get("NESSIE_URL", "http://localhost:19120").rstrip("/")
     suffix = uuid.uuid4().hex
     branch, namespace = f"fixture_{suffix}", f"fixture_{suffix}"
@@ -69,6 +70,12 @@ def main():
 
         conn = connection()
         stack.callback(conn.close)
+        yield conn, session, branch, namespace, catalog
+
+
+def main():
+    base = os.environ.get("NESSIE_URL", "http://localhost:19120").rstrip("/")
+    with iceberg_fixtures() as (conn, session, branch, namespace, catalog):
         with isolated_catalog(conn, session, base,
                               os.environ.get("STARROCKS_ICEBERG_URL", "http://valostream-nessie:19120/iceberg"),
                               branch, namespace) as env:
