@@ -61,6 +61,40 @@ ValoStream is an enterprise data platform that eliminates the gap between real-t
 
 ## 🚦 Current Progress & Roadmap Status
 
+**Overall: about 60–62% by roadmap effort.** Steps 0–3 are recorded as complete;
+Step 4 is substantially implemented but still partial; Steps 5–6 remain ahead.
+
+### Delivered
+
+| Step | What works now | Evidence and boundary |
+| --- | --- | --- |
+| **0. Architecture decisions** | Architecture findings addressed, ADRs published, Data Vault key format and H3/GeoParquet conventions documented. | Recorded complete in the project plan. |
+| **1. Validation spikes** | StarRocks/Nessie branch integration and the platform choices were exercised. | Branch lifecycle spike recorded at ~49.6 ms. |
+| **2. Streaming platform** | Compose services, Kafka producers, PyFlink, Fluss and Iceberg/Nessie sinks, StarRocks and spatial API are implemented. | Walking skeleton is recorded complete. Existing end-to-end results are not a current 100k events/sec benchmark. |
+| **3. Operations** | Iceberg maintenance, concurrent-writer plan, Prometheus/Grafana setup, sizing and cost model. | Operational tier is recorded complete; production recovery/load targets still need revalidation. |
+| **4. Quality, marts and release operations** | Avro contracts for clickstream/telemetry, Schema Registry checks, 97 dbt data tests, 10 models, API serving from validated marts, refresh/publish/rollback, optional retention and freshness alerts. | Local StarRocks/Nessie/MinIO smoke tests passed, including rejecting a corrupt release. User/product CDC adapters, privacy erasure, statistical baselines, PIT materialized views and measured SLAs are not complete. |
+
+The current API recommendations use interaction popularity and distance; they do
+not use personalized embeddings or a trained ranking model. Refresh and retention
+are opt-in commands, and the release pointer coordinates processes on one host.
+
+### Next steps
+
+1. **Finish Step 4 — governance and query-ready marts:** design and implement PII
+   encryption/erasure, define retention by data layer, add scheduled statistical
+   checks with a real seven-day baseline, then implement PIT/current-satellite and
+   H3 materialized views. Measure data freshness and query latency before setting
+   SLAs.
+2. **Build Step 5 — personalized recommendations:** choose one shared online/offline
+   feature definition strategy; implement point-in-time training joins; add item
+   and user embeddings; verify idempotent Redis updates; then add measured fallback
+   and circuit-breaker behavior.
+3. **Prove Step 6 — production behavior under load and failure:** fix and parallelize
+   the benchmark producer, establish throughput/latency baselines, run 100k events
+   per second, and verify Flink recovery and data correctness during injected faults.
+
+### Detailed checklist
+
 - [x] **Step 0: Document & Decision Fixes**
   - Resolved 5 Blockers & 17 Major findings from architecture review.
   - Published 14 ADRs across the technology stack.
@@ -80,7 +114,7 @@ ValoStream is an enterprise data platform that eliminates the gap between real-t
   - **Concurrent Writer Strategy:** Formalized in [ADR-015](docs/adr/ADR-015-concurrent-writer-strategy.md) with namespace-isolated streaming writes and Nessie side-branch compaction.
   - **Observability Stack:** Prometheus (`http://localhost:9090`) scraping Flink (9249), StarRocks (8040), Serving API (8000), and Grafana (`http://localhost:3000`) with auto-provisioned "ValoStream Platform Overview" dashboard.
   - **Capacity Planning & Cost Envelope:** Comprehensive resource sizing for 100k events/sec and AWS on-demand cost model (~$3,865/month) documented in §15 of `archi.md`.
-- [ ] **Step 4: Quality & Governance**
+- [ ] **Step 4: Quality & Governance — partially complete**
   - **Step 4.1 in progress — schema ingestion implemented:** Avro contracts for clickstream, telemetry, and future user/product CDC; Schema Registry deployment; explicit schema registration with `BACKWARD` policy and required-field protection; validated JSON/Avro producer; Avro-aware Flink sources; PR contract checks. See [runbook](docs/schema-contracts.md).
   - **Validated locally:** 25 unit/integration tests passed; producer acknowledged 20/20 Avro events; Flink 1.18 bounded reads decoded both event topics. Full Iceberg/Fluss sink integration was not rerun for this change.
   - **Step 4.3 deterministic gate implemented:** 97 dbt data tests cover keys, relationships, required fields, source column types, and rollup correctness. CI tests native fixtures and an isolated Nessie branch; temporary branches are discarded without merging.
@@ -89,7 +123,7 @@ ValoStream is an enterprise data platform that eliminates the gap between real-t
   - **Managed mart releases implemented:** Frozen Nessie input, dbt validation, periodic rebuild loop, request-consistent API switching, and rollback using a local manifest. See [release runbook](docs/mart-releases.md).
   - **Release operations implemented:** Optional retention protects active/rollback schemas and in-flight requests; event/build freshness checks and Prometheus alert rules detect stale releases or invalid manifests.
   - Crypto-shredding, scheduled statistical anomaly monitoring, bitemporal PIT, and distributed serving publication remain pending.
-- [ ] **Step 5: Feature Store & Recommender Engine**
+- [ ] **Step 5: Feature Store & Recommender Engine — planned**
   - Two-stage ranking pipeline (Qdrant ANN + Triton DCNv2) with streaming cold-start item embeddings.
-- [ ] **Step 6: Chaos & Load Testing**
+- [ ] **Step 6: Chaos & Load Testing — planned**
   - High-rate benchmark (100k events/sec) and JobManager failure recovery verification.

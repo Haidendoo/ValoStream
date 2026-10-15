@@ -3,11 +3,35 @@
 **Author:** ValoStream Engineering Team
 **Date:** 2026-09-15
 **Source:** Architecture Review (31 findings against `archi.md` at commit `eb4c50e`)
-**Status:** Steps 0–3 previously completed; Step 4 schema ingestion, deterministic Nessie/dbt gate, initial marts, local releases, retention, and freshness checks implemented; erasure, statistical anomaly monitors, PIT, and distributed publication pending
+**Status:** Steps 0–3 recorded complete; Step 4 contracts, deterministic Nessie/dbt gate, initial marts, local releases, retention, and freshness checks implemented but partial; privacy erasure, statistical baselines, PIT, trained personalization, and load/chaos validation remain pending. Overall estimate: about 60–62% by roadmap effort.
 
 ---
 
 ## Executive Summary
+
+### Progress at a glance
+
+| Status | Steps | Meaning |
+| --- | --- | --- |
+| Complete (recorded in this plan) | 0–3 | Architecture decisions, validation spikes, walking skeleton, and operational tier. Production-scale recovery and load targets still require fresh evidence. |
+| Partially complete | 4 | Contracts, deterministic quality gate, initial marts, API integration, and opt-in local release operations are implemented. Privacy erasure, scheduled statistical baselines, PIT/materialized views, and measured SLAs are unfinished. |
+| Planned | 5 | Shared feature definitions, point-in-time training, streaming embeddings, personalized retrieval/ranking, and circuit-breaker tuning. |
+| Planned | 6 | Parallel benchmark producer, 100k events/sec run, chaos testing, recovery validation, and performance report. |
+
+### Recommended implementation order
+
+1. Close Step 4 governance gaps: encryption/erasure and retention policy, then
+   scheduled anomaly checks with a seven-day baseline.
+2. Add and benchmark PIT/current-satellite/H3 serving models; publish measured
+   freshness and query latency targets.
+3. Design the feature store and training/serving contract before implementing
+   personalized embeddings and ranking.
+4. Run load and chaos tests against the completed serving pipeline, then revise
+   capacity and availability claims from measured results.
+
+This percentage is a rough effort estimate against the roadmap, not a production
+readiness score. See the [README progress table](README.md) and the section
+checklists below for delivered work and remaining acceptance criteria.
 
 The architecture review surfaced **31 findings** (5 blocker, 17 major, 9 minor) against
 the ValoStream technical proposal. The core technology selections — Data Vault 2.0,
