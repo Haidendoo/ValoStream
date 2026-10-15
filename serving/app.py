@@ -1,82 +1,93 @@
 #!/usr/bin/env python3
-"""
-ValoStream Location-Aware Serving API
-Vectorized OLAP Serving API querying Apache Iceberg Lakehouse on StarRocks
-with Uber H3 Hexagonal Discrete Global Grid & GeoParquet Spatial Analytics.
-"""
+"""Spatial serving over a validated mart snapshot or the legacy raw vault."""
 
+from contextlib import asynccontextmanager, closing
+import logging
 import os
-import math
 import time
-from typing import List, Optional, Dict, Any
-from contextlib import asynccontextmanager
+from typing import Any, Dict, List, Literal, Optional
 
-from fastapi import FastAPI, Query, HTTPException, Response
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+import h3
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 from pydantic import BaseModel
 import pymysql
-import h3
-from prometheus_client import generate_latest, CONTENT_TYPE_LATEST, Counter, Histogram
 
-REQUEST_COUNT = Counter(
-    "valostream_api_requests_total",
-    "Total requests to ValoStream serving API",
-    ["endpoint", "status"]
-)
-REQUEST_LATENCY = Histogram(
-    "valostream_api_request_duration_seconds",
-    "Request latency in seconds",
-    ["endpoint"]
+if __package__:
+    from .queries import ServingSource
+else:
+    from queries import ServingSource
+
+log = logging.getLogger(__name__)
+SOURCE = ServingSource(
+    catalog=os.getenv("STARROCKS_CATALOG", "nessie_main"),
+    vault_schema=os.getenv("STARROCKS_VAULT_SCHEMA", "vault"),
+    mart_schema=os.getenv("STARROCKS_MART_SCHEMA") or None,
 )
 
-STARROCKS_HOST = os.getenv("STARROCKS_HOST", "localhost")
-STARROCKS_PORT = int(os.getenv("STARROCKS_PORT", "9030"))
-STARROCKS_USER = os.getenv("STARROCKS_USER", "root")
-STARROCKS_PASSWORD = os.getenv("STARROCKS_PASSWORD", "")
-STARROCKS_CATALOG = os.getenv("STARROCKS_CATALOG", "nessie_main")
+REQUEST_COUNT = Counter("valostream_api_requests_total", "Serving requests", ["endpoint", "status"])
+REQUEST_LATENCY = Histogram("valostream_api_request_duration_seconds", "Serving latency", ["endpoint"])
+
 
 def get_connection():
     return pymysql.connect(
-        host=STARROCKS_HOST,
-        port=STARROCKS_PORT,
-        user=STARROCKS_USER,
-        password=STARROCKS_PASSWORD,
+        host=os.getenv("STARROCKS_HOST", "localhost"),
+        port=int(os.getenv("STARROCKS_PORT", "9030")),
+        user=os.getenv("STARROCKS_USER", "root"),
+        password=os.getenv("STARROCKS_PASSWORD", ""),
         cursorclass=pymysql.cursors.DictCursor,
-        autocommit=True
+        autocommit=True, connect_timeout=5, read_timeout=15, write_timeout=15,
     )
 
+
+def query_rows(sql, params=()):
+    with closing(get_connection()) as conn, conn.cursor() as cursor:
+        cursor.execute(sql, params)
+        return cursor.fetchall()
+
+
+def query_failed(message, error):
+    log.exception(message)
+    code = 503 if isinstance(error, pymysql.Error) else 500
+    raise HTTPException(status_code=code, detail=message) from error
+
+
 @asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Test DB connection at startup
+async def lifespan(app):
     try:
-        conn = get_connection()
-        with conn.cursor() as cur:
-            cur.execute("SELECT 1;")
-        conn.close()
-        print(f" Connected to StarRocks at {STARROCKS_HOST}:{STARROCKS_PORT}")
-    except Exception as e:
-        print(f"⚠️ StarRocks initial connection warning: {e}")
+        query_rows("SELECT 1")
+    except pymysql.Error:
+        log.warning("StarRocks unavailable at startup; /healthz will report readiness")
     yield
 
-app = FastAPI(
-    title="ValoStream Location-Aware Recommender & Spatial API",
-    version="1.1.0",
-    description="Vectorized OLAP Serving API querying Iceberg Lakehouse on StarRocks with Uber H3 & GeoParquet",
-    lifespan=lifespan
-)
 
-# Enable CORS for Deck.gl / frontends
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+app = FastAPI(
+    title="ValoStream Spatial Serving API", version="1.2.0", lifespan=lifespan,
+    description="Location-aware popularity recommendations, H3 demand, and current courier positions.",
 )
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["GET"], allow_headers=["*"])
+
+
+@app.middleware("http")
+async def observe_requests(request: Request, call_next):
+    start, status = time.perf_counter(), 500
+    try:
+        response = await call_next(request)
+        status = response.status_code
+        return response
+    finally:
+        route = request.scope.get("route")
+        endpoint = route.path if route else "unmatched"
+        if endpoint != "/metrics":
+            REQUEST_COUNT.labels(endpoint, str(status)).inc()
+            REQUEST_LATENCY.labels(endpoint).observe(time.perf_counter() - start)
+
 
 @app.get("/metrics")
 def get_metrics():
     return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
 
 class MerchantRecommendation(BaseModel):
     merchant_id: str
@@ -88,6 +99,7 @@ class MerchantRecommendation(BaseModel):
     avg_longitude: float
     h3_res7: Optional[str] = None
 
+
 class RecommendationResponse(BaseModel):
     user_id: str
     user_location: Dict[str, float]
@@ -96,11 +108,13 @@ class RecommendationResponse(BaseModel):
     total_returned: int
     latency_ms: float
 
+
 class HexagonFeature(BaseModel):
     hex: str
     count: int
-    centroid: List[float]  # [lon, lat]
+    centroid: List[float]
     properties: Dict[str, Any]
+
 
 class HexagonResponse(BaseModel):
     entity: str
@@ -109,269 +123,114 @@ class HexagonResponse(BaseModel):
     hexagons: List[HexagonFeature]
     latency_ms: float
 
+
 @app.get("/healthz")
 def health_check():
     try:
-        conn = get_connection()
-        with conn.cursor() as cur:
-            cur.execute("SELECT 1;")
-        conn.close()
-        return {"status": "ok", "starrocks": "connected", "lakehouse": "healthy", "engine": "vectorized-olap"}
-    except Exception as e:
-        raise HTTPException(status_code=503, detail=f"Database connection failed: {e}")
+        # Check the active source, not just the availability of a SQL connection.
+        with closing(get_connection()) as conn, conn.cursor() as cursor:
+            for table in SOURCE.readiness_tables():
+                cursor.execute(f"SELECT * FROM {table} LIMIT 0")
+        return {"status": "ok", "starrocks": "connected", "lakehouse": "reachable",
+                "engine": "vectorized-olap", "source": "marts" if SOURCE.mart_schema else "vault"}
+    except Exception as error:
+        log.exception("Serving source readiness failed")
+        raise HTTPException(status_code=503, detail="Serving data source unavailable") from error
+
 
 @app.get("/recommendations", response_model=RecommendationResponse)
 def get_recommendations(
-    user_id: str = Query(..., description="Target customer user ID, e.g. USR_000123"),
-    lat: float = Query(10.7750, description="Customer current latitude (Ho Chi Minh City)"),
-    lon: float = Query(106.7000, description="Customer current longitude (Ho Chi Minh City)"),
-    limit: int = Query(10, ge=1, le=50, description="Number of recommendations to return"),
-    use_h3_filter: bool = Query(False, description="Filter merchants to customer's H3 neighborhood (k-ring 1)")
+    user_id: str = Query(..., min_length=1, max_length=256),
+    lat: float = Query(10.7750, ge=-90, le=90),
+    lon: float = Query(106.7000, ge=-180, le=180),
+    limit: int = Query(10, ge=1, le=50),
+    use_h3_filter: bool = Query(False, description="Restrict to H3 neighbors; fall back globally if empty"),
 ):
-    t0 = time.time()
+    start = time.perf_counter()
     try:
-        user_h3_str = h3.latlng_to_cell(lat, lon, 7)
-        user_h3_neighbors = [int(h, 16) for h in h3.grid_disk(user_h3_str, 1)]
-
-        conn = get_connection()
-        with conn.cursor() as cur:
-            # Query StarRocks vectorized engine over Nessie Iceberg catalog
-            # Prefer sat_interaction_context_spatial for H3 / spatial index
-            h3_clause = ""
-            params: list = [lon, lat]
-            if use_h3_filter:
-                placeholders = ",".join(["%s"] * len(user_h3_neighbors))
-                h3_clause = f"AND s.h3_res7 IN ({placeholders})"
-                params.extend(user_h3_neighbors)
-
-            params.append(limit)
-
-            sql = f"""
-            SELECT 
-                m.merchant_id,
-                count(*) AS interaction_count,
-                round(avg(s.latitude), 6) AS avg_lat,
-                round(avg(s.longitude), 6) AS avg_lon,
-                hex(max(s.h3_res7)) AS sample_h3_res7,
-                round(ST_Distance_Sphere(avg(s.longitude), avg(s.latitude), %s, %s), 1) AS dist_meters
-            FROM {STARROCKS_CATALOG}.vault.link_user_merchant_interaction l
-            JOIN {STARROCKS_CATALOG}.vault.sat_interaction_context_spatial s ON l.hk_interaction_id = s.hk_interaction_id
-            JOIN {STARROCKS_CATALOG}.vault.hub_merchant m ON l.hk_merchant_id = m.hk_merchant_id
-            WHERE s.latitude IS NOT NULL AND s.longitude IS NOT NULL {h3_clause}
-            GROUP BY m.merchant_id
-            ORDER BY interaction_count DESC
-            LIMIT %s;
-            """
-            cur.execute(sql, params)
-            rows = cur.fetchall()
-
-            # Fallback to general table if spatial has fewer rows
-            if not rows and use_h3_filter:
-                # Retry without strict H3 filter
-                return get_recommendations(user_id=user_id, lat=lat, lon=lon, limit=limit, use_h3_filter=False)
-
-        conn.close()
-
-        recommendations = []
-        for rank, row in enumerate(rows, start=1):
-            dist_km = (row["dist_meters"] or 1000.0) / 1000.0
-            score = round(float(row["interaction_count"]) / (1.0 + dist_km * 0.5), 2)
-            h3_hex = row.get("sample_h3_res7")
-            recommendations.append(
-                MerchantRecommendation(
-                    merchant_id=row["merchant_id"],
-                    rank=rank,
-                    score=score,
-                    interaction_count=int(row["interaction_count"]),
-                    distance_meters=float(row["dist_meters"] or 0.0),
-                    avg_latitude=float(row["avg_lat"]),
-                    avg_longitude=float(row["avg_lon"]),
-                    h3_res7=h3_hex.lower() if h3_hex else None
-                )
-            )
-
-        latency_ms = round((time.time() - t0) * 1000, 2)
+        cell = h3.latlng_to_cell(lat, lon, 7)
+        neighbors = [int(value, 16) for value in h3.grid_disk(cell, 1)] if use_h3_filter else []
+        rows = query_rows(*SOURCE.recommendations(lat, lon, limit, neighbors))
+        if not rows and use_h3_filter:
+            # The first connection has already closed; preserve the full request latency.
+            rows = query_rows(*SOURCE.recommendations(lat, lon, limit))
+        recommendations = [MerchantRecommendation(
+            merchant_id=row["merchant_id"], rank=rank, score=float(row["score"]),
+            interaction_count=int(row["interaction_count"]),
+            distance_meters=float(row["dist_meters"] if row["dist_meters"] is not None else 1000.0),
+            avg_latitude=float(row["avg_lat"]), avg_longitude=float(row["avg_lon"]),
+            h3_res7=row["sample_h3_res7"].lower() if row.get("sample_h3_res7") else None,
+        ) for rank, row in enumerate(rows, 1)]
         return RecommendationResponse(
-            user_id=user_id,
-            user_location={"latitude": lat, "longitude": lon},
-            user_h3_res7=user_h3_str,
-            recommendations=recommendations,
-            total_returned=len(recommendations),
-            latency_ms=latency_ms
+            user_id=user_id, user_location={"latitude": lat, "longitude": lon}, user_h3_res7=cell,
+            recommendations=recommendations, total_returned=len(recommendations),
+            latency_ms=round((time.perf_counter() - start) * 1000, 2),
         )
+    except Exception as error:
+        query_failed("Recommendation query failed", error)
 
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Recommendation query failed: {e}")
 
 @app.get("/spatial/hexagons", response_model=HexagonResponse)
 def get_spatial_hexagons(
-    entity: str = Query("interactions", regex="^(interactions|couriers)$", description="Target spatial domain"),
-    resolution: int = Query(7, ge=7, le=9, description="H3 resolution (7 or 9)"),
-    limit: int = Query(100, ge=1, le=500, description="Max hexagons to return")
+    entity: Literal["interactions", "couriers"] = "interactions",
+    resolution: int = Query(7, description="Supported H3 resolutions: 7 and 9"),
+    limit: int = Query(100, ge=1, le=500),
 ):
-    """
-    Returns H3 hexagon discrete global grid cells with aggregated metrics
-    ready for 3D Deck.gl H3HexagonLayer or Kepler.gl map visualization.
-    """
-    t0 = time.time()
-    col_h3 = f"h3_res{resolution}"
+    if resolution not in (7, 9):
+        raise HTTPException(status_code=422, detail="H3 resolution must be 7 or 9")
+    start = time.perf_counter()
     try:
-        conn = get_connection()
-        with conn.cursor() as cur:
-            if entity == "interactions":
-                sql = f"""
-                SELECT 
-                    hex({col_h3}) AS h3_hex,
-                    count(*) AS metric_count,
-                    round(avg(latitude), 6) AS centroid_lat,
-                    round(avg(longitude), 6) AS centroid_lon,
-                    round(avg(dwell_time_ms), 0) AS avg_dwell_ms
-                FROM {STARROCKS_CATALOG}.vault.sat_interaction_context_spatial
-                WHERE {col_h3} IS NOT NULL
-                GROUP BY {col_h3}
-                ORDER BY metric_count DESC
-                LIMIT %s;
-                """
-                cur.execute(sql, (limit,))
-                rows = cur.fetchall()
-                hexagons = [
-                    HexagonFeature(
-                        hex=r["h3_hex"].lower(),
-                        count=int(r["metric_count"]),
-                        centroid=[float(r["centroid_lon"]), float(r["centroid_lat"])],
-                        properties={"avg_dwell_ms": float(r["avg_dwell_ms"] or 0)}
-                    )
-                    for r in rows if r.get("h3_hex")
-                ]
-            else:  # couriers
-                sql = f"""
-                SELECT 
-                    hex({col_h3}) AS h3_hex,
-                    count(*) AS metric_count,
-                    round(avg(latitude), 6) AS centroid_lat,
-                    round(avg(longitude), 6) AS centroid_lon,
-                    round(avg(speed_kmh), 1) AS avg_speed_kmh,
-                    count(DISTINCT hk_courier_id) AS active_couriers
-                FROM {STARROCKS_CATALOG}.vault.sat_courier_telemetry_spatial
-                WHERE {col_h3} IS NOT NULL
-                GROUP BY {col_h3}
-                ORDER BY metric_count DESC
-                LIMIT %s;
-                """
-                cur.execute(sql, (limit,))
-                rows = cur.fetchall()
-                hexagons = [
-                    HexagonFeature(
-                        hex=r["h3_hex"].lower(),
-                        count=int(r["metric_count"]),
-                        centroid=[float(r["centroid_lon"]), float(r["centroid_lat"])],
-                        properties={
-                            "avg_speed_kmh": float(r["avg_speed_kmh"] or 0),
-                            "active_couriers": int(r["active_couriers"] or 0)
-                        }
-                    )
-                    for r in rows if r.get("h3_hex")
-                ]
-        conn.close()
+        rows = query_rows(*SOURCE.hexagons(entity, resolution, limit))
+        features = []
+        for row in rows:
+            if not row.get("h3_hex"):
+                continue
+            properties = ({"avg_dwell_ms": float(row["avg_dwell_ms"] or 0)} if entity == "interactions"
+                          else {"avg_speed_kmh": float(row["avg_speed_kmh"] or 0),
+                                "active_couriers": int(row["active_couriers"])})
+            features.append(HexagonFeature(
+                hex=row["h3_hex"].lower(), count=int(row["metric_count"]),
+                centroid=[float(row["centroid_lon"]), float(row["centroid_lat"])], properties=properties,
+            ))
+        return HexagonResponse(entity=entity, resolution=resolution, total_hexagons=len(features),
+                               hexagons=features, latency_ms=round((time.perf_counter() - start) * 1000, 2))
+    except Exception as error:
+        query_failed("Hexagon aggregation query failed", error)
 
-        latency_ms = round((time.time() - t0) * 1000, 2)
-        return HexagonResponse(
-            entity=entity,
-            resolution=resolution,
-            total_hexagons=len(hexagons),
-            hexagons=hexagons,
-            latency_ms=latency_ms
-        )
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Hexagon aggregation query failed: {e}")
 
 @app.get("/spatial/couriers")
 def get_live_couriers(
-    status: Optional[str] = Query(None, description="Filter by status (e.g. delivering, at_merchant, idle)"),
-    limit: int = Query(50, ge=1, le=200)
+    status: Optional[Literal["to_merchant", "at_merchant", "delivering", "idle"]] = None,
+    limit: int = Query(50, ge=1, le=200),
 ):
-    """Returns the latest courier positions with H3 cells and telemetry."""
-    t0 = time.time()
+    start = time.perf_counter()
     try:
-        conn = get_connection()
-        with conn.cursor() as cur:
-            status_clause = "WHERE s.h3_res7 IS NOT NULL"
-            params: list = []
-            if status:
-                status_clause += " AND s.status = %s"
-                params.append(status)
-            params.append(limit)
+        rows = query_rows(*SOURCE.live_couriers(status, limit))
+        couriers = [{
+            "courier_id": row["courier_id"], "latitude": float(row["latitude"]),
+            "longitude": float(row["longitude"]), "speed_kmh": float(row["speed_kmh"] or 0),
+            "bearing_deg": int(row["bearing_deg"] or 0), "status": row["status"],
+            "h3_res7": row["h3_res7"].lower() if row["h3_res7"] else None,
+            "h3_res9": row["h3_res9"].lower() if row["h3_res9"] else None,
+            "load_date": str(row["load_date"]),
+        } for row in rows]
+        return {"total": len(couriers), "couriers": couriers,
+                "latency_ms": round((time.perf_counter() - start) * 1000, 2)}
+    except Exception as error:
+        query_failed("Courier query failed", error)
 
-            sql = f"""
-            SELECT 
-                c.courier_id,
-                s.latitude,
-                s.longitude,
-                s.speed_kmh,
-                s.bearing_deg,
-                s.status,
-                hex(s.h3_res7) AS h3_res7,
-                hex(s.h3_res9) AS h3_res9,
-                s.load_date
-            FROM {STARROCKS_CATALOG}.vault.sat_courier_telemetry_spatial s
-            JOIN {STARROCKS_CATALOG}.vault.hub_courier c ON s.hk_courier_id = c.hk_courier_id
-            {status_clause}
-            ORDER BY s.load_date DESC
-            LIMIT %s;
-            """
-            cur.execute(sql, params)
-            rows = cur.fetchall()
-        conn.close()
-
-        couriers = [
-            {
-                "courier_id": r["courier_id"],
-                "latitude": float(r["latitude"]),
-                "longitude": float(r["longitude"]),
-                "speed_kmh": float(r["speed_kmh"] or 0.0),
-                "bearing_deg": int(r["bearing_deg"] or 0),
-                "status": r["status"],
-                "h3_res7": r["h3_res7"].lower() if r["h3_res7"] else None,
-                "h3_res9": r["h3_res9"].lower() if r["h3_res9"] else None,
-                "load_date": str(r["load_date"])
-            }
-            for r in rows
-        ]
-
-        return {
-            "total": len(couriers),
-            "couriers": couriers,
-            "latency_ms": round((time.time() - t0) * 1000, 2)
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Courier query failed: {e}")
 
 @app.get("/stats")
 def lakehouse_stats():
-    """Returns row counts across the Data Vault 2.0 tables in StarRocks."""
+    """Counts for the active source: raw vault or normalized staging tables."""
     try:
-        conn = get_connection()
-        with conn.cursor() as cur:
-            sql = f"""
-            SELECT 'hub_user' AS tbl, count(*) AS cnt FROM {STARROCKS_CATALOG}.vault.hub_user
-            UNION ALL
-            SELECT 'hub_merchant' AS tbl, count(*) AS cnt FROM {STARROCKS_CATALOG}.vault.hub_merchant
-            UNION ALL
-            SELECT 'hub_courier' AS tbl, count(*) AS cnt FROM {STARROCKS_CATALOG}.vault.hub_courier
-            UNION ALL
-            SELECT 'link_user_merchant_interaction' AS tbl, count(*) AS cnt FROM {STARROCKS_CATALOG}.vault.link_user_merchant_interaction
-            UNION ALL
-            SELECT 'sat_interaction_context_spatial' AS tbl, count(*) AS cnt FROM {STARROCKS_CATALOG}.vault.sat_interaction_context_spatial
-            UNION ALL
-            SELECT 'sat_courier_telemetry_spatial' AS tbl, count(*) AS cnt FROM {STARROCKS_CATALOG}.vault.sat_courier_telemetry_spatial;
-            """
-            cur.execute(sql)
-            rows = cur.fetchall()
-        conn.close()
-        return {r["tbl"]: r["cnt"] for r in rows}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch stats: {e}")
+        sql = " UNION ALL ".join(
+            f"SELECT '{name}' AS tbl, COUNT(*) AS cnt FROM {table}" for name, table in SOURCE.tables().items()
+        )
+        return {row["tbl"]: int(row["cnt"]) for row in query_rows(sql)}
+    except Exception as error:
+        query_failed("Failed to fetch stats", error)
+
 
 if __name__ == "__main__":
     import uvicorn

@@ -1,5 +1,6 @@
 .PHONY: up down restart status logs clean minio-init schema-check schema-register test-contracts test-contracts-integration
 .PHONY: analytics-check analytics-nessie-check quality-gate
+.PHONY: serving-test serving-check
 
 PYTHON ?= python3
 SCHEMA_REGISTRY_URL ?= http://localhost:8082
@@ -24,6 +25,12 @@ analytics-nessie-check:
 
 quality-gate:
 	cd .. && $(PYTHON) -m ops.nessie_quality_gate
+
+serving-test:
+	cd .. && $(PYTHON) -m unittest discover -s tests/serving -v
+
+serving-check:
+	cd .. && PYTHONPATH=. $(PYTHON) tests/serving/mart_smoke.py
 
 up:
 	docker compose up -d

@@ -946,6 +946,7 @@ Gold Tier (StarRocks / Iceberg `gold.*`):
 
 **Deliverables:**
 - [x] Initial dbt transformations for current courier positions and interaction/H3/affinity marts over the six existing raw tables
+- [x] Serving API opt-in for validated mart schemas, with raw-vault compatibility and real StarRocks response tests
 - [ ] StarRocks materialized views for PIT tables
 - [ ] Current-satellite materialized views per historized satellite
 - [ ] StarRocks H3 spatial rollup materialized views for Deck.gl / Kepler.gl
@@ -957,7 +958,10 @@ The initial models use persisted dbt `table` materialization, rebuilt per run.
 This provides a consumption layer and repeatable quality checks; it does not yet
 provide asynchronous materialized views, bitemporal PIT, a refresh scheduler, or a
 measured staleness SLA. Current courier positions and H3 rollups are tested on
-synthetic native/Iceberg data; the serving API still uses its existing queries.
+synthetic native/Iceberg data. The serving API can select a validated mart schema
+at startup; raw-vault mode remains the default. Both query modes have API response
+checks on StarRocks. Automatic publication and refresh remain pending; see
+[serving runbook](docs/serving-marts.md).
 
 **Acceptance criteria:**
 - PIT query returns in < 100 ms on StarRocks

@@ -95,15 +95,16 @@ There is no installed refresh scheduler or freshness SLA yet. A future five-minu
 schedule is the target for current positions and interaction/H3/affinity marts;
 until scheduled and measured, freshness is only as recent as the last build.
 The StarRocks adapter drops/recreates tables, so builds are not atomic publication
-of the whole model graph. Use an isolated output schema for validation; deployment
-must add validated publication before exposing these tables to live serving.
-The existing serving API has not been switched to these marts.
+of the whole model graph. Use an isolated output schema for validation. The serving
+API can opt into a completed, validated schema with `STARROCKS_MART_SCHEMA`; see
+[serving configuration](serving-marts.md). Raw-vault mode remains the default.
+Automatic publication and refresh are not implemented.
 
 ## CI and validation
 
 `.github/workflows/analytics.yml` runs on model, source schema, streaming schema,
-gate, test, and Compose changes. It starts StarRocks 4.1.4, Nessie, and MinIO,
-executes the native and branch-backed checks, uploads results, and tears down
+gate, serving, test, and Compose changes. It starts StarRocks 4.1.4, Nessie, and MinIO,
+executes the native, branch-backed, and API response checks, uploads results, and tears down
 services. It requires no production credentials. The event-contract workflow
 continues checking Kafka schema compatibility independently.
 

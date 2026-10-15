@@ -8,9 +8,10 @@ import uuid
 from .analytics_common import ROOT, connection, identifier, run_dbt, wait_for_backend
 
 
-def load_fixtures(cursor, schema):
+def load_fixtures(cursor, schema, fixtures=None):
     schema = identifier(schema)
-    fixtures = json.loads((ROOT / "analytics/fixtures/vault.json").read_text())
+    if fixtures is None:
+        fixtures = json.loads((ROOT / "analytics/fixtures/vault.json").read_text())
     for name, table in fixtures.items():
         name = identifier(name)
         columns = ", ".join(f"{identifier(col)} {kind}" for col, kind in table["columns"].items())
