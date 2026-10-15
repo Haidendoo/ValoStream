@@ -1,0 +1,27 @@
+{
+  "type": "record",
+  "name": "UserChangeEvent",
+  "namespace": "io.valostream.events",
+  "fields": [
+    {
+      "name": "user_id",
+      "type": "string"
+    },
+    {
+      "name": "op",
+      "type": "string"
+    },
+    {
+      "name": "event_ts_ms",
+      "type": "long"
+    },
+    {
+      "name": "display_name",
+      "type": [
+        "null",
+        "string"
+      ],
+      "default": null
+    }
+  ]
+}

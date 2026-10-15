@@ -3,7 +3,7 @@
 **Author:** ValoStream Engineering Team
 **Date:** 2026-09-15
 **Source:** Architecture Review (31 findings against `archi.md` at commit `eb4c50e`)
-**Status:** Execution Plan — Pending Implementation
+**Status:** Steps 0–3 previously completed; Step 4 schema ingestion, deterministic Nessie/dbt gate, and initial marts validated; erasure, statistical monitors, PIT/refresh, and serving publication pending
 
 ---
 
@@ -40,7 +40,7 @@ flowchart LR
     S1["Step 1\nValidation Spikes\n<b>(Spike 1.1 Done)</b>"]:::done
     S2["Step 2\nWalking Skeleton\n<b>(100% Done)</b>"]:::done
     S3["Step 3\nOperational Tier\n<b>(100% Done)</b>"]:::done
-    S4["Step 4\nQuality & Governance\n<b>(Next Up)</b>"]:::current
+    S4["Step 4\nQuality & Governance\n<b>(In Progress)</b>"]:::current
     S5["Step 5\nFeature Store & RecSys\n(Pending)"]:::pending
     S6["Step 6\nBenchmark & Chaos\n(Pending)"]:::pending
 
@@ -790,17 +790,23 @@ and the missing mart layer.
 - Update `benchmark_producer.py` to use schema-aware serialization
 
 **Deliverables:**
-- [ ] Schema Registry deployment configuration
-- [ ] Registered schemas for: `events.clickstream`, `cdc.users`, `cdc.products`
-- [ ] Compatibility mode configuration
-- [ ] Updated §3.1 diagram showing registry between sources and Kafka
-- [ ] CI trigger: schema change → create Nessie branch → run dbt tests
-- [ ] Updated `benchmark_producer.py` with Avro/Protobuf serialization
+- [x] Schema Registry deployment configuration
+- [x] Checked-in Avro schemas and explicit registration command for clickstream, telemetry, users, and products (Avro topics use `.avro.v1`; CDC adapters remain pending)
+- [x] Compatibility mode configuration (`BACKWARD` plus required-field preservation in registration/CI)
+- [x] Updated §3.1 diagram showing registry between sources and Kafka
+- [x] Schema PR gate: syntax, backward evolution against PR base, required-field preservation, producer/source unit tests
+- [x] CI trigger: schema change → create isolated Nessie fixture branch → run dbt tests; `ops/nessie_quality_gate.py` also supports existing lakehouse refs
+- [x] Existing `delivery_stream_producer.py` supports validated JSON and Confluent Avro, with matching Flink input configuration
+- [ ] High-rate `benchmark_producer.py` (deferred to Step 6.1; no standalone benchmark producer exists yet)
+
+Implementation and migration instructions: [`docs/schema-contracts.md`](docs/schema-contracts.md).
+User/product CDC contracts reserve future adapter interfaces; only clickstream and
+telemetry are generated and consumed today. This does not complete the whole Step 4.
 
 **Acceptance criteria:**
 - Malformed payload is rejected at ingestion (before Flink)
 - Schema evolution (adding a field) succeeds with backward compatibility
-- Breaking schema change (removing a required field) is blocked
+- Breaking schema change (removing a required field) is blocked by the additional application contract gate; Avro `BACKWARD` alone permits field removal
 
 ---
 
@@ -859,14 +865,19 @@ Strategy: Crypto-Shredding
   - Run daily via Airflow, alert to Slack/PagerDuty
 
 **Deliverables:**
-- [ ] Updated §6.2 separating deterministic vs. statistical tests
-- [ ] dbt test suite for PR gate (deterministic only)
+- [x] Updated §6.2 separating deterministic vs. statistical tests
+- [x] dbt test suite for PR gate (97 deterministic tests; native and real Iceberg fixture validation)
 - [ ] Airflow DAG for scheduled statistical monitors on `main`
 - [ ] Alert configuration for anomaly detection
 
 **Acceptance criteria:**
 - PR gate tests run on thin branch data without false positives
 - Statistical monitors have a real baseline window (≥ 7 days)
+
+Implemented gate: [`docs/analytics-quality-gate.md`](docs/analytics-quality-gate.md).
+The current raw ingestion repeats hub/link rows, so uniqueness is checked after
+normalization; conflicting key mappings still fail. Raw-vault uniqueness remains
+an ingestion follow-up. Statistical monitors and their baseline are not implemented.
 
 ---
 
@@ -934,13 +945,19 @@ Gold Tier (StarRocks / Iceberg `gold.*`):
   ```
 
 **Deliverables:**
-- [ ] dbt models for Business Vault transformations
+- [x] Initial dbt transformations for current courier positions and interaction/H3/affinity marts over the six existing raw tables
 - [ ] StarRocks materialized views for PIT tables
 - [ ] Current-satellite materialized views per historized satellite
 - [ ] StarRocks H3 spatial rollup materialized views for Deck.gl / Kepler.gl
 - [ ] Documented refresh cadence and staleness SLA per view
 - [ ] Updated §4.1 describing the three-layer architecture
-- [ ] Honest framing: "Data Vault for integration and history, dimensional marts for consumption"
+- [x] Honest framing: "Data Vault for integration and history, dimensional marts for consumption"
+
+The initial models use persisted dbt `table` materialization, rebuilt per run.
+This provides a consumption layer and repeatable quality checks; it does not yet
+provide asynchronous materialized views, bitemporal PIT, a refresh scheduler, or a
+measured staleness SLA. Current courier positions and H3 rollups are tested on
+synthetic native/Iceberg data; the serving API still uses its existing queries.
 
 **Acceptance criteria:**
 - PIT query returns in < 100 ms on StarRocks

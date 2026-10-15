@@ -59,6 +59,7 @@ flowchart TD
 
     %% 2. Ingestion & Streaming Layer
     subgraph INGESTION["⚡ Real-Time Ingestion & Streaming Layer"]
+        REGISTRY["<b>Schema Registry + Producer Validation</b><br/>Avro contracts, BACKWARD compatibility<br/><i>Required-field preservation in CI/registration</i>"]:::ingest
         KAFKA["<b>Apache Kafka</b><br/>Distributed Event Bus<br/><i>(events.clickstream, events.telemetry, cdc.orders)</i>"]:::ingest
         FLINK["<b>Apache Flink & PyFlink</b><br/>• Real-Time Hash MD5 & HashDiff<br/>• Stream Deduplication & Load Date<br/>• Uber H3 Spatial Indexing (res7, res9)<br/>• GeoParquet WKB & Feature Extraction"]:::ingest
     end
@@ -144,9 +145,10 @@ flowchart TD
     COURIER_APP["🛵 Courier / Driver App<br/><i>(Accept, Navigate, Deliver)</i>"]
 
     %% Flow Connections
-    D1 -->|CDC Logs| KAFKA
-    D2 -->|Clickstream Events| KAFKA
-    D3 -->|GPS Telemetry Pings| KAFKA
+    D1 -->|CDC adapters planned| REGISTRY
+    D2 -->|Clickstream Events| REGISTRY
+    D3 -->|GPS Telemetry Pings| REGISTRY
+    REGISTRY -->|Validated events from producer| KAFKA
 
     KAFKA --> FLINK
     FLINK -->|Sub-second Mutable Writes| FLUSS_TIER
@@ -449,15 +451,21 @@ To guarantee 100% auditability, zero-loss replayability, and sub-second BI servi
 ### 6.1 Data Versioning Workflow
 Apache Nessie functions as a "Git Catalog" for Apache Iceberg with the following core mechanics:
 * **Zero-Copy Branching:** Spawns isolated data branches (`pr_feature_xyz`) without duplicating underlying Parquet files on S3.
-* **Isolated Testing:** Flink / dbt write and test data exclusively on isolated branches. Production (`main`) remains completely untouched.
-* **Atomic Merge & Instant Rollback:** Once Data Quality Tests pass 100%, perform an API Merge into `main`. If an anomaly occurs on Production, `Nessie Rollback` restores the catalog state to a previous commit in seconds.
+* **Isolated Testing:** The dbt quality gate reads an isolated Nessie branch pinned to a source hash and writes consumption models into a disposable native StarRocks database. Fixture writes occur only on temporary branches; `main` remains untouched.
+* **Code Promotion:** Quality checks discard temporary branches and outputs on success or failure. The PR promotes code; CI never merges fixture data into `main`. Production publication and rollback need a separate validated deployment process.
 
 ### 6.2 Data Quality Gate (dbt Tests)
-Automated testing scenarios executed via GitHub Actions prior to merging:
-1. **Uniqueness:** Hash Keys in Hub Tables must be unique.
-2. **Referential Integrity:** Hash Keys in Link Tables must exist in corresponding Hub Tables.
-3. **Data Completeness:** Required fields (`load_date`, `record_source`, `hash_diff`) must not be NULL.
-4. **Distribution Anomaly Check:** Verifies record counts against anomaly thresholds (>50% variation from historical ingestion runs).
+Implemented PR checks in `analytics/` are deterministic and operate on small fixtures:
+1. **Uniqueness:** Normalized hub/link keys are unique; exact replays collapse, while conflicting key mappings or satellite payloads fail. Raw ingestion uniqueness remains pending.
+2. **Referential Integrity:** Link keys reference normalized hubs; interactions reference links and telemetry references couriers.
+3. **Completeness & Schema:** Existing source columns have the expected types and required values, including event timestamps and `record_source`. Missing columns fail. The current sources do not contain `hash_diff`.
+4. **Consumption Correctness:** Materialized interaction facts preserve source interactions; H3 rollups conserve eligible counts per resolution. Fixture assertions also verify dwell totals and latest courier positions.
+
+Scheduled statistical checks are separate, still pending: compare daily volume on
+`main` against at least seven completed days of baseline and alert on >50%
+deviation. Such volume thresholds are not PR gates. See the
+[analytics runbook](docs/analytics-quality-gate.md) for the ten persisted models,
+97 data tests, branch isolation, and current refresh/publication limitations.
 
 ---
 
@@ -627,7 +635,7 @@ While dbt + StarRocks handles SQL-centric dimensional mart creation efficiently,
 
 1. **Domain Ownership & Data Contracts:**
    * Each domain (E-Commerce, Clickstream, Supply Chain) retains full ownership over its schemas and data quality.
-   * Enforces **Protobuf / JSON Schema Registries** at the Kafka Ingestion layer to block malformed payloads before entering the Lakehouse.
+   * The delivery producer validates **Avro contracts** before publishing JSON or Confluent-framed Avro. Schema Registry uses `BACKWARD` compatibility; CI and registration additionally prevent removal/type changes of required fields. Avro topics use `.avro.v1` to separate them from legacy JSON. This is producer-side enforcement, not broker-side validation; CDC adapters and the Nessie/dbt schema gate are pending. See [event contract runbook](docs/schema-contracts.md).
 2. **PII Data Security & Masking:**
    * Personally Identifiable Information (Email, Phone, SSN) within Satellites must be Salted-Hashed ($SHA256$) or encrypted before writing to Iceberg.
 3. **Fine-Grained Access Control (RBAC / ABAC):**

@@ -8,6 +8,7 @@ ValoStream PyFlink Real-Time Lakehouse Ingestion Pipeline
 """
 
 import hashlib
+from kafka_sources import kafka_source_ddl
 from shapely.geometry import Point
 import h3
 
@@ -225,59 +226,8 @@ def main():
     print("✅ Created Lakehouse Geospatial Tables in Iceberg")
 
     # 5. Kafka Sources
-    t_env.execute_sql("""
-    CREATE TABLE IF NOT EXISTS default_catalog.default_database.kafka_clickstream (
-        event_id STRING,
-        user_id STRING,
-        item_id STRING,
-        merchant_id STRING,
-        event_type STRING,
-        device_type STRING,
-        dwell_time_ms BIGINT,
-        referrer_page STRING,
-        latitude DOUBLE,
-        longitude DOUBLE,
-        event_ts_ms BIGINT,
-        proc_time AS PROCTIME(),
-        event_time AS TO_TIMESTAMP_LTZ(event_ts_ms, 3),
-        WATERMARK FOR event_time AS event_time - INTERVAL '5' SECOND
-    ) WITH (
-        'connector' = 'kafka',
-        'topic' = 'events.clickstream',
-        'properties.bootstrap.servers' = 'valostream-kafka:29092',
-        'properties.group.id' = 'pyflink-lakehouse-clickstream',
-        'scan.startup.mode' = 'earliest-offset',
-        'format' = 'json',
-        'json.fail-on-missing-field' = 'false',
-        'json.ignore-parse-errors' = 'true'
-    );
-    """)
-
-    t_env.execute_sql("""
-    CREATE TABLE IF NOT EXISTS default_catalog.default_database.kafka_telemetry (
-        telemetry_id STRING,
-        courier_id STRING,
-        order_id STRING,
-        latitude DOUBLE,
-        longitude DOUBLE,
-        speed_kmh DOUBLE,
-        bearing_deg INT,
-        status STRING,
-        event_ts_ms BIGINT,
-        proc_time AS PROCTIME(),
-        event_time AS TO_TIMESTAMP_LTZ(event_ts_ms, 3),
-        WATERMARK FOR event_time AS event_time - INTERVAL '5' SECOND
-    ) WITH (
-        'connector' = 'kafka',
-        'topic' = 'events.telemetry',
-        'properties.bootstrap.servers' = 'valostream-kafka:29092',
-        'properties.group.id' = 'pyflink-lakehouse-telemetry',
-        'scan.startup.mode' = 'earliest-offset',
-        'format' = 'json',
-        'json.fail-on-missing-field' = 'false',
-        'json.ignore-parse-errors' = 'true'
-    );
-    """)
+    for topic in ("events.clickstream", "events.telemetry"):
+        t_env.execute_sql(kafka_source_ddl(topic))
     print("✅ Created Kafka Source Tables")
 
     # 6. Build Statement Set with Geospatial Transformation

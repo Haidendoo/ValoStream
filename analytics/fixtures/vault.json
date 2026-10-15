@@ -1,0 +1,262 @@
+{
+  "hub_user": {
+    "columns": {
+      "hk_user_id": "VARCHAR(32)",
+      "user_id": "VARCHAR(64)",
+      "load_date": "DATETIME",
+      "record_source": "VARCHAR(64)"
+    },
+    "rows": [
+      [
+        "E4774CDDA0793F86414E8B9140BB6DB4",
+        "u1",
+        "2026-10-15 10:00:00",
+        "fixture"
+      ],
+      [
+        "E4774CDDA0793F86414E8B9140BB6DB4",
+        "u1",
+        "2026-10-15 10:00:00",
+        "fixture"
+      ],
+      [
+        "270C1B084F3F146EB5787075158D9C53",
+        "u2",
+        "2026-10-15 10:00:00",
+        "fixture"
+      ]
+    ]
+  },
+  "hub_merchant": {
+    "columns": {
+      "hk_merchant_id": "VARCHAR(32)",
+      "merchant_id": "VARCHAR(64)",
+      "load_date": "DATETIME",
+      "record_source": "VARCHAR(64)"
+    },
+    "rows": [
+      [
+        "AE7BE26CDAA742CA148068D5AC90EACA",
+        "m1",
+        "2026-10-15 10:00:00",
+        "fixture"
+      ],
+      [
+        "AE7BE26CDAA742CA148068D5AC90EACA",
+        "m1",
+        "2026-10-15 10:00:00",
+        "fixture"
+      ]
+    ]
+  },
+  "hub_courier": {
+    "columns": {
+      "hk_courier_id": "VARCHAR(32)",
+      "courier_id": "VARCHAR(64)",
+      "load_date": "DATETIME",
+      "record_source": "VARCHAR(64)"
+    },
+    "rows": [
+      [
+        "A9F7E97965D6CF799A529102A973B8B9",
+        "c1",
+        "2026-10-15 10:00:00",
+        "fixture"
+      ],
+      [
+        "A9F7E97965D6CF799A529102A973B8B9",
+        "c1",
+        "2026-10-15 10:00:00",
+        "fixture"
+      ],
+      [
+        "9AB62B5EF34A985438BFDF7EE0102229",
+        "c2",
+        "2026-10-15 10:00:00",
+        "fixture"
+      ]
+    ]
+  },
+  "link_user_merchant_interaction": {
+    "columns": {
+      "hk_interaction_id": "VARCHAR(32)",
+      "hk_user_id": "VARCHAR(32)",
+      "hk_merchant_id": "VARCHAR(32)",
+      "load_date": "DATETIME",
+      "record_source": "VARCHAR(64)"
+    },
+    "rows": [
+      [
+        "9CE88802F07591E5CE0457EF51ECE021",
+        "E4774CDDA0793F86414E8B9140BB6DB4",
+        "AE7BE26CDAA742CA148068D5AC90EACA",
+        "2026-10-15 10:00:00",
+        "fixture"
+      ],
+      [
+        "9CE88802F07591E5CE0457EF51ECE021",
+        "E4774CDDA0793F86414E8B9140BB6DB4",
+        "AE7BE26CDAA742CA148068D5AC90EACA",
+        "2026-10-15 10:00:00",
+        "fixture"
+      ],
+      [
+        "FC46F8E70489B90FA373D93109479CA5",
+        "E4774CDDA0793F86414E8B9140BB6DB4",
+        "AE7BE26CDAA742CA148068D5AC90EACA",
+        "2026-10-15 10:30:00",
+        "fixture"
+      ],
+      [
+        "51D4B581D21C20A16147B17C3ADC7867",
+        "270C1B084F3F146EB5787075158D9C53",
+        "AE7BE26CDAA742CA148068D5AC90EACA",
+        "2026-10-15 11:00:00",
+        "fixture"
+      ]
+    ]
+  },
+  "sat_interaction_context_spatial": {
+    "columns": {
+      "hk_interaction_id": "VARCHAR(32)",
+      "load_date": "DATETIME",
+      "event_type": "VARCHAR(32)",
+      "device_type": "VARCHAR(32)",
+      "dwell_time_ms": "BIGINT",
+      "referrer_page": "VARCHAR(64)",
+      "latitude": "DOUBLE",
+      "longitude": "DOUBLE",
+      "h3_res7": "BIGINT",
+      "h3_res9": "BIGINT",
+      "geom_wkb": "VARBINARY",
+      "record_source": "VARCHAR(64)"
+    },
+    "rows": [
+      [
+        "9CE88802F07591E5CE0457EF51ECE021",
+        "2026-10-15 10:00:00",
+        "click",
+        "ios",
+        100,
+        "home_feed",
+        10.775,
+        106.7,
+        609777061401198591,
+        618784260652793855,
+        null,
+        "fixture"
+      ],
+      [
+        "9CE88802F07591E5CE0457EF51ECE021",
+        "2026-10-15 10:00:00",
+        "click",
+        "ios",
+        100,
+        "home_feed",
+        10.775,
+        106.7,
+        609777061401198591,
+        618784260652793855,
+        null,
+        "fixture"
+      ],
+      [
+        "FC46F8E70489B90FA373D93109479CA5",
+        "2026-10-15 10:30:00",
+        "purchase",
+        "ios",
+        300,
+        "home_feed",
+        10.775,
+        106.7,
+        609777061401198591,
+        618784260652793855,
+        null,
+        "fixture"
+      ],
+      [
+        "51D4B581D21C20A16147B17C3ADC7867",
+        "2026-10-15 11:00:00",
+        "click",
+        "ios",
+        200,
+        "home_feed",
+        10.775,
+        106.7,
+        609777061401198591,
+        618784260652793855,
+        null,
+        "fixture"
+      ]
+    ]
+  },
+  "sat_courier_telemetry_spatial": {
+    "columns": {
+      "hk_courier_id": "VARCHAR(32)",
+      "load_date": "DATETIME",
+      "latitude": "DOUBLE",
+      "longitude": "DOUBLE",
+      "speed_kmh": "DOUBLE",
+      "bearing_deg": "INT",
+      "status": "VARCHAR(32)",
+      "h3_res7": "BIGINT",
+      "h3_res9": "BIGINT",
+      "geom_wkb": "VARBINARY",
+      "record_source": "VARCHAR(64)"
+    },
+    "rows": [
+      [
+        "A9F7E97965D6CF799A529102A973B8B9",
+        "2026-10-15 10:30:00",
+        10.775,
+        106.7,
+        10.0,
+        90,
+        "delivering",
+        609777061401198591,
+        618784260652793855,
+        null,
+        "fixture"
+      ],
+      [
+        "A9F7E97965D6CF799A529102A973B8B9",
+        "2026-10-15 10:00:00",
+        10.775,
+        106.7,
+        10.0,
+        90,
+        "idle",
+        609777061401198591,
+        618784260652793855,
+        null,
+        "fixture"
+      ],
+      [
+        "A9F7E97965D6CF799A529102A973B8B9",
+        "2026-10-15 10:30:00",
+        10.775,
+        106.7,
+        10.0,
+        90,
+        "delivering",
+        609777061401198591,
+        618784260652793855,
+        null,
+        "fixture"
+      ],
+      [
+        "9AB62B5EF34A985438BFDF7EE0102229",
+        "2026-10-15 10:00:00",
+        10.775,
+        106.7,
+        10.0,
+        90,
+        "idle",
+        609777061401198591,
+        618784260652793855,
+        null,
+        "fixture"
+      ]
+    ]
+  }
+}

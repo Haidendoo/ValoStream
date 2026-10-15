@@ -64,6 +64,28 @@ services:
       timeout: 5s
       retries: 10
 
+  # Schema Registry: host 8082 avoids the Flink UI on 8081.
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.7.1
+    container_name: valostream-schema-registry
+    ports:
+      - "8082:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: PLAINTEXT://valostream-kafka:29092
+      SCHEMA_REGISTRY_KAFKASTORE_TOPIC_REPLICATION_FACTOR: 1
+      SCHEMA_REGISTRY_SCHEMA_COMPATIBILITY_LEVEL: BACKWARD
+    depends_on:
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8081/subjects"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
   # 4. Apache Flink JobManager
   flink-jobmanager:
     build:
@@ -76,6 +98,8 @@ services:
     command: jobmanager
     environment:
       - JOB_MANAGER_RPC_ADDRESS=valostream-flink-jobmanager
+      - EVENT_FORMAT=${EVENT_FORMAT:-json}
+      - SCHEMA_REGISTRY_URL=http://schema-registry:8081
       - |
         FLINK_PROPERTIES=
         jobmanager.rpc.address: valostream-flink-jobmanager
@@ -108,6 +132,8 @@ services:
     command: taskmanager
     environment:
       - JOB_MANAGER_RPC_ADDRESS=valostream-flink-jobmanager
+      - EVENT_FORMAT=${EVENT_FORMAT:-json}
+      - SCHEMA_REGISTRY_URL=http://schema-registry:8081
       - |
         FLINK_PROPERTIES=
         jobmanager.rpc.address: valostream-flink-jobmanager

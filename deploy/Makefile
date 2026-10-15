@@ -1,4 +1,29 @@
-.PHONY: up down restart status logs clean minio-init
+.PHONY: up down restart status logs clean minio-init schema-check schema-register test-contracts test-contracts-integration
+.PHONY: analytics-check analytics-nessie-check quality-gate
+
+PYTHON ?= python3
+SCHEMA_REGISTRY_URL ?= http://localhost:8082
+
+schema-check:
+	cd .. && $(PYTHON) -m producer.schema_registry check
+
+schema-register:
+	cd .. && $(PYTHON) -m producer.schema_registry register --url $(SCHEMA_REGISTRY_URL)
+
+test-contracts:
+	cd .. && $(PYTHON) -m unittest discover -s tests -v
+
+test-contracts-integration:
+	cd .. && VALOSTREAM_INTEGRATION=1 $(PYTHON) -m unittest discover -s tests -v
+
+analytics-check:
+	cd .. && $(PYTHON) -m ops.check_analytics
+
+analytics-nessie-check:
+	cd .. && PYTHONPATH=. $(PYTHON) tests/analytics/nessie_smoke.py
+
+quality-gate:
+	cd .. && $(PYTHON) -m ops.nessie_quality_gate
 
 up:
 	docker compose up -d

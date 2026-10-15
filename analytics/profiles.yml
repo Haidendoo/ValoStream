@@ -1,0 +1,12 @@
+valostream:
+  target: local
+  outputs:
+    local:
+      type: starrocks
+      host: "{{ env_var('STARROCKS_HOST', 'localhost') }}"
+      port: "{{ env_var('STARROCKS_PORT', '9030') | int }}"
+      username: "{{ env_var('STARROCKS_USER', 'root') }}"
+      password: "{{ env_var('STARROCKS_PASSWORD', '') }}"
+      catalog: default_catalog
+      schema: "{{ env_var('DBT_OUTPUT_SCHEMA', 'valostream_analytics') }}"
+      threads: 2

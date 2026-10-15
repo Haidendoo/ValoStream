@@ -1,0 +1,176 @@
+version: 2
+models:
+- name: stg_users
+  columns:
+  - name: hk_user_id
+    data_tests:
+    - not_null
+    - unique
+  - name: user_id
+    data_tests:
+    - not_null
+    - unique
+  - name: first_seen_at
+    data_tests:
+    - not_null
+- name: stg_merchants
+  columns:
+  - name: hk_merchant_id
+    data_tests:
+    - not_null
+    - unique
+  - name: merchant_id
+    data_tests:
+    - not_null
+    - unique
+  - name: first_seen_at
+    data_tests:
+    - not_null
+- name: stg_couriers
+  columns:
+  - name: hk_courier_id
+    data_tests:
+    - not_null
+    - unique
+  - name: courier_id
+    data_tests:
+    - not_null
+    - unique
+  - name: first_seen_at
+    data_tests:
+    - not_null
+- name: stg_interaction_links
+  columns:
+  - name: hk_interaction_id
+    data_tests:
+    - not_null
+    - unique
+  - name: hk_user_id
+    data_tests:
+    - not_null
+    - relationships:
+        arguments:
+          to: ref('stg_users')
+          field: hk_user_id
+  - name: hk_merchant_id
+    data_tests:
+    - not_null
+    - relationships:
+        arguments:
+          to: ref('stg_merchants')
+          field: hk_merchant_id
+- name: stg_interactions
+  columns:
+  - name: hk_interaction_id
+    data_tests:
+    - not_null
+    - unique
+    - relationships:
+        arguments:
+          to: ref('stg_interaction_links')
+          field: hk_interaction_id
+  - name: load_date
+    data_tests:
+    - not_null
+  - name: event_type
+    data_tests:
+    - not_null
+    - accepted_values:
+        arguments:
+          values:
+          - view_item
+          - click
+          - add_to_cart
+          - purchase
+- name: stg_courier_telemetry
+  columns:
+  - name: hk_courier_id
+    data_tests:
+    - not_null
+    - relationships:
+        arguments:
+          to: ref('stg_couriers')
+          field: hk_courier_id
+  - name: load_date
+    data_tests:
+    - not_null
+  - name: status
+    data_tests:
+    - not_null
+    - accepted_values:
+        arguments:
+          values:
+          - to_merchant
+          - at_merchant
+          - delivering
+          - idle
+  data_tests:
+  - unique_combination:
+      arguments:
+        columns:
+        - hk_courier_id
+        - load_date
+- name: current_courier_positions
+  columns:
+  - name: hk_courier_id
+    data_tests:
+    - not_null
+    - unique
+  - name: courier_id
+    data_tests:
+    - not_null
+    - unique
+- name: fct_interactions
+  columns:
+  - name: hk_interaction_id
+    data_tests:
+    - not_null
+    - unique
+  - name: hk_user_id
+    data_tests:
+    - not_null
+  - name: hk_merchant_id
+    data_tests:
+    - not_null
+- name: mart_h3_demand_hourly
+  columns:
+  - name: h3_cell
+    data_tests:
+    - not_null
+  - name: resolution
+    data_tests:
+    - not_null
+    - accepted_values:
+        arguments:
+          values:
+          - 7
+          - 9
+          quote: false
+  - name: event_hour
+    data_tests:
+    - not_null
+  - name: event_count
+    data_tests:
+    - not_null
+  data_tests:
+  - unique_combination:
+      arguments:
+        columns:
+        - h3_cell
+        - resolution
+        - event_hour
+        - event_type
+- name: mart_user_merchant_affinity
+  columns:
+  - name: hk_user_id
+    data_tests:
+    - not_null
+  - name: hk_merchant_id
+    data_tests:
+    - not_null
+  data_tests:
+  - unique_combination:
+      arguments:
+        columns:
+        - hk_user_id
+        - hk_merchant_id

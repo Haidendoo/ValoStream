@@ -81,7 +81,11 @@ ValoStream is an enterprise data platform that eliminates the gap between real-t
   - **Observability Stack:** Prometheus (`http://localhost:9090`) scraping Flink (9249), StarRocks (8040), Serving API (8000), and Grafana (`http://localhost:3000`) with auto-provisioned "ValoStream Platform Overview" dashboard.
   - **Capacity Planning & Cost Envelope:** Comprehensive resource sizing for 100k events/sec and AWS on-demand cost model (~$3,865/month) documented in §15 of `archi.md`.
 - [ ] **Step 4: Quality & Governance**
-  - Schema Registry, Crypto-shredding for GDPR, Business Vault & Information Marts.
+  - **Step 4.1 in progress — schema ingestion implemented:** Avro contracts for clickstream, telemetry, and future user/product CDC; Schema Registry deployment; explicit schema registration with `BACKWARD` policy and required-field protection; validated JSON/Avro producer; Avro-aware Flink sources; PR contract checks. See [runbook](docs/schema-contracts.md).
+  - **Validated locally:** 25 unit/integration tests passed; producer acknowledged 20/20 Avro events; Flink 1.18 bounded reads decoded both event topics. Full Iceberg/Fluss sink integration was not rerun for this change.
+  - **Step 4.3 deterministic gate implemented:** 97 dbt data tests cover keys, relationships, required fields, source column types, and rollup correctness. CI tests native fixtures and an isolated Nessie branch; temporary branches are discarded without merging.
+  - **Step 4.4 initial models implemented:** Six normalized staging tables, latest courier positions, interaction facts, hourly H3 demand (resolutions 7/9), and user/merchant affinity. Ten models passed against real Nessie/Iceberg/MinIO sources; four deliberate corruption cases were rejected. See [analytics runbook](docs/analytics-quality-gate.md).
+  - Crypto-shredding, scheduled statistical monitoring, bitemporal PIT, automatic refresh, and serving publication remain pending.
 - [ ] **Step 5: Feature Store & Recommender Engine**
   - Two-stage ranking pipeline (Qdrant ANN + Triton DCNv2) with streaming cold-start item embeddings.
 - [ ] **Step 6: Chaos & Load Testing**

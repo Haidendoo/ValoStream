@@ -1,0 +1,47 @@
+{
+  "type": "record",
+  "name": "CourierTelemetryEvent",
+  "namespace": "io.valostream.events",
+  "fields": [
+    {
+      "name": "telemetry_id",
+      "type": "string"
+    },
+    {
+      "name": "courier_id",
+      "type": "string"
+    },
+    {
+      "name": "order_id",
+      "type": [
+        "null",
+        "string"
+      ],
+      "default": null
+    },
+    {
+      "name": "latitude",
+      "type": "double"
+    },
+    {
+      "name": "longitude",
+      "type": "double"
+    },
+    {
+      "name": "speed_kmh",
+      "type": "double"
+    },
+    {
+      "name": "bearing_deg",
+      "type": "int"
+    },
+    {
+      "name": "status",
+      "type": "string"
+    },
+    {
+      "name": "event_ts_ms",
+      "type": "long"
+    }
+  ]
+}

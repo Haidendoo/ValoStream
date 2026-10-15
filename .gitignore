@@ -151,6 +151,11 @@ activemq-data/
 .env
 .envrc
 .venv
+.venv-contracts/
+.venv-analytics/
+analytics/logs/
+analytics/dbt_packages/
+analytics/.user.yml
 env/
 venv/
 ENV/

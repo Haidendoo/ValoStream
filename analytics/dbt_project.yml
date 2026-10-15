@@ -1,0 +1,14 @@
+name: valostream
+version: '1.0.0'
+config-version: 2
+profile: valostream
+model-paths: [models]
+test-paths: [tests]
+macro-paths: [macros]
+clean-targets: [target, dbt_packages]
+models:
+  valostream:
+    +materialized: table
+    +properties:
+      replication_num: '1'
+    +buckets: 1

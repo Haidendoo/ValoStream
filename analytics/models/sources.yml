@@ -1,0 +1,278 @@
+version: 2
+sources:
+- name: vault
+  schema: '{{ env_var(''DBT_SOURCE_CATALOG'', ''nessie_main'') }}.{{ env_var(''DBT_SOURCE_SCHEMA'',
+    ''vault'') }}'
+  tables:
+  - name: hub_user
+    columns:
+    - name: hk_user_id
+      data_tests:
+      - not_null
+    - name: user_id
+      data_tests:
+      - not_null
+    - name: load_date
+      data_tests:
+      - not_null
+    - name: record_source
+      data_tests:
+      - not_null
+    data_tests:
+    - schema_conforms:
+        arguments:
+          types:
+            hk_user_id:
+            - VARCHAR
+            - CHAR
+            - STRING
+            user_id:
+            - VARCHAR
+            - CHAR
+            - STRING
+            load_date:
+            - DATETIME
+            - TIMESTAMP
+            record_source:
+            - VARCHAR
+            - CHAR
+            - STRING
+  - name: hub_merchant
+    columns:
+    - name: hk_merchant_id
+      data_tests:
+      - not_null
+    - name: merchant_id
+      data_tests:
+      - not_null
+    - name: load_date
+      data_tests:
+      - not_null
+    - name: record_source
+      data_tests:
+      - not_null
+    data_tests:
+    - schema_conforms:
+        arguments:
+          types:
+            hk_merchant_id:
+            - VARCHAR
+            - CHAR
+            - STRING
+            merchant_id:
+            - VARCHAR
+            - CHAR
+            - STRING
+            load_date:
+            - DATETIME
+            - TIMESTAMP
+            record_source:
+            - VARCHAR
+            - CHAR
+            - STRING
+  - name: hub_courier
+    columns:
+    - name: hk_courier_id
+      data_tests:
+      - not_null
+    - name: courier_id
+      data_tests:
+      - not_null
+    - name: load_date
+      data_tests:
+      - not_null
+    - name: record_source
+      data_tests:
+      - not_null
+    data_tests:
+    - schema_conforms:
+        arguments:
+          types:
+            hk_courier_id:
+            - VARCHAR
+            - CHAR
+            - STRING
+            courier_id:
+            - VARCHAR
+            - CHAR
+            - STRING
+            load_date:
+            - DATETIME
+            - TIMESTAMP
+            record_source:
+            - VARCHAR
+            - CHAR
+            - STRING
+  - name: link_user_merchant_interaction
+    columns:
+    - name: hk_interaction_id
+      data_tests:
+      - not_null
+    - name: hk_user_id
+      data_tests:
+      - not_null
+    - name: hk_merchant_id
+      data_tests:
+      - not_null
+    - name: load_date
+      data_tests:
+      - not_null
+    - name: record_source
+      data_tests:
+      - not_null
+    data_tests:
+    - schema_conforms:
+        arguments:
+          types:
+            hk_interaction_id:
+            - VARCHAR
+            - CHAR
+            - STRING
+            hk_user_id:
+            - VARCHAR
+            - CHAR
+            - STRING
+            hk_merchant_id:
+            - VARCHAR
+            - CHAR
+            - STRING
+            load_date:
+            - DATETIME
+            - TIMESTAMP
+            record_source:
+            - VARCHAR
+            - CHAR
+            - STRING
+  - name: sat_interaction_context_spatial
+    columns:
+    - name: hk_interaction_id
+      data_tests:
+      - not_null
+    - name: load_date
+      data_tests:
+      - not_null
+    - name: event_type
+      data_tests:
+      - not_null
+    - name: device_type
+      data_tests:
+      - not_null
+    - name: dwell_time_ms
+      data_tests:
+      - not_null
+    - name: latitude
+      data_tests:
+      - not_null
+    - name: longitude
+      data_tests:
+      - not_null
+    - name: h3_res7
+      data_tests:
+      - not_null
+    - name: h3_res9
+      data_tests:
+      - not_null
+    - name: record_source
+      data_tests:
+      - not_null
+    data_tests:
+    - schema_conforms:
+        arguments:
+          types:
+            hk_interaction_id:
+            - VARCHAR
+            - CHAR
+            - STRING
+            load_date:
+            - DATETIME
+            - TIMESTAMP
+            event_type:
+            - VARCHAR
+            - CHAR
+            - STRING
+            device_type:
+            - VARCHAR
+            - CHAR
+            - STRING
+            dwell_time_ms:
+            - BIGINT
+            referrer_page:
+            - VARCHAR
+            - CHAR
+            - STRING
+            latitude:
+            - DOUBLE
+            longitude:
+            - DOUBLE
+            h3_res7:
+            - BIGINT
+            h3_res9:
+            - BIGINT
+            record_source:
+            - VARCHAR
+            - CHAR
+            - STRING
+  - name: sat_courier_telemetry_spatial
+    columns:
+    - name: hk_courier_id
+      data_tests:
+      - not_null
+    - name: load_date
+      data_tests:
+      - not_null
+    - name: latitude
+      data_tests:
+      - not_null
+    - name: longitude
+      data_tests:
+      - not_null
+    - name: speed_kmh
+      data_tests:
+      - not_null
+    - name: bearing_deg
+      data_tests:
+      - not_null
+    - name: status
+      data_tests:
+      - not_null
+    - name: h3_res7
+      data_tests:
+      - not_null
+    - name: h3_res9
+      data_tests:
+      - not_null
+    - name: record_source
+      data_tests:
+      - not_null
+    data_tests:
+    - schema_conforms:
+        arguments:
+          types:
+            hk_courier_id:
+            - VARCHAR
+            - CHAR
+            - STRING
+            load_date:
+            - DATETIME
+            - TIMESTAMP
+            latitude:
+            - DOUBLE
+            longitude:
+            - DOUBLE
+            speed_kmh:
+            - DOUBLE
+            bearing_deg:
+            - INT
+            - INTEGER
+            status:
+            - VARCHAR
+            - CHAR
+            - STRING
+            h3_res7:
+            - BIGINT
+            h3_res9:
+            - BIGINT
+            record_source:
+            - VARCHAR
+            - CHAR
+            - STRING
