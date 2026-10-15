@@ -80,6 +80,8 @@ def main():
 
     settings = EnvironmentSettings.new_instance().in_streaming_mode().build()
     t_env = StreamTableEnvironment.create(env, environment_settings=settings)
+    # Keep TIMESTAMP_LTZ -> timezone-less vault TIMESTAMP conversion in UTC.
+    t_env.get_config().set("table.local-time-zone", "UTC")
 
     # 2. Register Python Geospatial UDFs
     t_env.create_temporary_function("py_h3_res7", py_h3_res7)

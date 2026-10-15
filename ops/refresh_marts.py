@@ -1,8 +1,9 @@
 """Build frozen Nessie snapshots, validate, and publish immutable serving releases."""
 
 import argparse
-from contextlib import closing, contextmanager
-from dataclasses import asdict
+from contextlib import ExitStack, closing, contextmanager
+from dataclasses import asdict, replace
+from datetime import datetime, timezone
 import fcntl
 import json
 import logging
@@ -15,7 +16,8 @@ import uuid
 import requests
 
 from serving.queries import ServingSource
-from serving.releases import Release, ReleaseState, read_state, utc_now, write_state
+from serving.releases import (Release, ReleaseState, RetiredRelease, read_state, release_lease,
+                              timestamp, utc_now, write_state)
 from .analytics_common import ROOT, connection, run_dbt
 from .nessie_quality_gate import frozen_catalog
 
@@ -53,6 +55,18 @@ def verify_release(conn, schema):
             cursor.fetchall()
 
 
+def capture_watermarks(conn, schema):
+    source = ServingSource(mart_schema=schema)
+    watermarks = {}
+    with conn.cursor() as cursor:
+        for stream, table in (("interactions", "stg_interactions"), ("couriers", "stg_courier_telemetry")):
+            cursor.execute(f"SELECT MAX(load_date) FROM {source.mart(table)}")
+            value = cursor.fetchone()[0]
+            # Flink writes UTC event timestamps to the timezone-less StarRocks DATETIME.
+            watermarks[stream] = value.replace(tzinfo=timezone.utc).isoformat() if value is not None else None
+    return watermarks
+
+
 def publish(conn, session, manifest, source_ref="main", source_schema="vault", artifacts=None):
     manifest = Path(manifest)
     with writer_lock(manifest):
@@ -78,14 +92,18 @@ def publish(conn, session, manifest, source_ref="main", source_schema="vault", a
                 if code:
                     raise RuntimeError(f"Mart quality gate failed (dbt exit {code}); artifacts: {artifacts}")
                 verify_release(conn, schema)
-                release = Release(schema, snapshot["ref"], snapshot["hash"], snapshot["schema"], utc_now())
+                release = Release(schema, snapshot["ref"], snapshot["hash"], snapshot["schema"], utc_now(),
+                                  capture_watermarks(conn, schema))
             except BaseException:
                 with conn.cursor() as cursor:
                     cursor.execute(f"DROP DATABASE {schema}")
                 raise
         # Source cleanup finishes before publishing. Validated output is retained if
         # publication fails, including failures after replace/fsync: it may be live.
-        state = ReleaseState(release, old.active if old else None, utc_now())
+        retired = old.retired if old else ()
+        if old and old.previous:
+            retired += (RetiredRelease(old.previous, utc_now()),)
+        state = ReleaseState(release, old.active if old else None, utc_now(), retired=retired)
         write_state(manifest, state)
         log.info("Published %s from %s@%s", schema, release.source_ref, release.source_hash)
         return state
@@ -97,10 +115,43 @@ def rollback(conn, manifest):
         if old.previous is None:
             raise ValueError("No previous release is available")
         verify_release(conn, old.previous.schema)
-        state = ReleaseState(old.previous, old.active, utc_now())
+        state = ReleaseState(old.previous, old.active, utc_now(), retired=old.retired)
         write_state(manifest, state)
         log.info("Rolled back to %s", state.active.schema)
         return state
+
+
+def prune(conn, manifest, retention_seconds=86400, apply=False, now=None):
+    """Only collect recorded retired releases, after a grace period and lease check."""
+    if retention_seconds < 300:
+        raise ValueError("Retention grace must be at least 300 seconds")
+    now = now or datetime.now(timezone.utc)
+    report = []
+    with writer_lock(manifest):
+        state = read_state(manifest)
+        # Validation in ReleaseState excludes active/previous and duplicate entries.
+        for entry in state.retired:
+            schema = entry.release.schema
+            if (now - timestamp(entry.retired_at)).total_seconds() < retention_seconds:
+                report.append({"schema": schema, "status": "grace_period"})
+                continue
+            with ExitStack() as stack:
+                try:
+                    stack.enter_context(release_lease(manifest, schema, exclusive=True))
+                except BlockingIOError:
+                    report.append({"schema": schema, "status": "in_use"})
+                    continue
+                if not apply:
+                    report.append({"schema": schema, "status": "eligible"})
+                    continue
+                with conn.cursor() as cursor:
+                    cursor.execute(f"DROP DATABASE IF EXISTS {schema}")
+                state = replace(state, version=2,
+                                retired=tuple(item for item in state.retired if item != entry))
+                # A failed write leaves a retryable entry; DROP IF EXISTS is idempotent.
+                write_state(manifest, state)
+                report.append({"schema": schema, "status": "deleted"})
+    return report
 
 
 def refresh_loop(refresh, interval, stop):
@@ -117,24 +168,41 @@ def refresh_loop(refresh, interval, stop):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("publish", "watch", "rollback", "status"))
+    parser.add_argument("action", choices=("publish", "watch", "rollback", "status", "prune"))
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--ref", default="main")
     parser.add_argument("--source-schema", default="vault")
     parser.add_argument("--artifacts", type=Path, default=ROOT / "analytics/target/releases")
     parser.add_argument("--interval-seconds", type=int, default=300)
+    parser.add_argument("--retention-seconds", type=int, default=86400)
+    parser.add_argument("--apply", action="store_true", help="Delete eligible schemas with prune; default is dry-run")
+    parser.add_argument("--prune-retired", action="store_true", help="Prune after successful watch refreshes")
     args = parser.parse_args()
+    if args.retention_seconds < 300:
+        parser.error("--retention-seconds must be at least 300")
+    if args.apply and args.action != "prune":
+        parser.error("--apply is only supported with prune")
+    if args.prune_retired and args.action != "watch":
+        parser.error("--prune-retired is only supported with watch")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
     def refresh():
         with closing(connection()) as conn, requests.Session() as session:
-            return publish(conn, session, args.manifest, args.ref, args.source_schema, args.artifacts)
+            state = publish(conn, session, args.manifest, args.ref, args.source_schema, args.artifacts)
+            if args.prune_retired:
+                log.info("Retention: %s", prune(conn, args.manifest, args.retention_seconds, apply=True))
+            return state
 
     if args.action == "watch":
         stop = Event()
         for signum in (signal.SIGTERM, signal.SIGINT):
             signal.signal(signum, lambda *_: stop.set())
         refresh_loop(refresh, args.interval_seconds, stop)
+        return
+    if args.action == "prune":
+        with closing(connection()) as conn:
+            report = prune(conn, args.manifest, args.retention_seconds, args.apply)
+        print(json.dumps(report, indent=2))
         return
     if args.action == "status":
         state = read_state(args.manifest)

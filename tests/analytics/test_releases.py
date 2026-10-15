@@ -23,6 +23,9 @@ class ReleaseTest(unittest.TestCase):
         self.cursor = self.conn.cursor.return_value.__enter__.return_value
         self.build = self.enterContext(patch.object(refresh, "run_dbt", return_value=0))
         self.verify = self.enterContext(patch.object(refresh, "verify_release"))
+        self.enterContext(patch.object(refresh, "capture_watermarks", return_value={
+            "interactions": utc_now(), "couriers": utc_now(),
+        }))
         self.source_closed = False
 
         @contextmanager
@@ -53,6 +56,7 @@ class ReleaseTest(unittest.TestCase):
         self.assertEqual(read_state(self.path), result)
         self.assertEqual(result.previous, self.old.active)
         self.assertEqual(result.active.source_hash, "abc456")
+        self.assertEqual(result.retired[0].release, self.old.previous)
         self.assertEqual(self.build.call_args.args[0], ["build"])
         self.assertFalse(any(sql.startswith("DROP DATABASE") for sql in self.sql()))
 
@@ -167,7 +171,7 @@ class ReleaseTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             Release("vault", "main", "abc", "vault", utc_now())
         with self.assertRaises(ValueError):
-            ReleaseState(self.old.active, None, utc_now(), version=2)
+            ReleaseState(self.old.active, None, utc_now(), version=99)
 
 
 if __name__ == "__main__":

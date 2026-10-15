@@ -45,8 +45,8 @@ the schema used by running API workers. Build and validate a new schema, configu
 new workers to use it, check `/healthz`, and switch traffic using your deployment
 system. Keep the old schema while old workers drain and for rollback. A rolling
 deployment can temporarily serve both snapshots. The managed release runner
-automates builds and pointer publication on one host; retention and distributed
-traffic switching remain deployment concerns.
+automates builds and pointer publication on one host, with optional retention
+protected by request leases. Distributed traffic switching remains a deployment concern.
 
 For a stable input, build against a catalog pinned to a completed Nessie snapshot.
 Reading the mutable `nessie_main` catalog during ingestion does not guarantee that
@@ -73,15 +73,19 @@ up its output; its temporary schema must not be used as a serving release.
 - `/healthz` checks that all tables needed by the active source can be resolved
   through StarRocks and reports `source: marts` or `source: vault`, plus the selected
   `mart_schema` (null in vault mode). Failure returns
-  503. It does not scan source data files, run quality tests, or check freshness.
+  503. Manifest mode also reports build/event ages and supports configurable
+  freshness thresholds; see the [release runbook](mart-releases.md). It does not
+  scan source data files or rerun quality tests.
 - `/metrics` records request counts by route/status and latency by route. Query
-  strings and user identifiers are excluded from metric labels.
+  strings and user identifiers are excluded from metric labels. Manifest mode
+  also exports release validity, timestamps, and freshness-check results.
 
 Database errors return generic 503 responses; detailed exceptions stay in server
 logs. Connections close on success, failure, and before recommendation fallback.
 Invalid coordinates, entities, statuses, and limits return 422 before any query.
 
-Mart data is as recent as its last successful build. The optional release runner
+Mart data reflects the source snapshot used by its last successful build; a new
+build can still contain old events. The optional release runner
 has a periodic refresh loop; there is no measured freshness/latency SLA. Raw mode removes exact consumption replays,
 but does not provide the mart quality gate's rejection of conflicting payloads.
 
@@ -94,9 +98,9 @@ docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.analytics-c
 make -C deploy serving-check PYTHON="$PWD/.venv-analytics/bin/python"
 ```
 
-Fifteen API/query unit tests cover input validation, error handling, connection
+Eighteen API/query unit tests cover input validation, error handling, connection
 cleanup, fallback, readiness, ranking SQL, request metrics, and release selection
-during publication or manifest failure. The integration
+during publication or manifest failure, request leases, and freshness/metrics. The integration
 check creates two uniquely named native StarRocks databases, builds all ten dbt
 models with 97 data tests, then exercises real HTTP responses in both source modes.
 Fixtures include replayed hubs/links/events, out-of-order courier positions,

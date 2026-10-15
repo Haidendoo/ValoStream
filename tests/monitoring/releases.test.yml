@@ -1,0 +1,76 @@
+rule_files:
+  - ../../deploy/prometheus/alerts.yml
+evaluation_interval: 1m
+tests:
+  - name: Freshness failure waits for two minutes and resolves on recovery
+    interval: 1m
+    input_series:
+      - series: 'valostream_release_freshness_healthy{job="serving-api", instance="api:8000"}'
+        values: '0 0 0 0 1 1'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: ServingReleaseFreshnessFailed
+        exp_alerts: []
+      - eval_time: 3m
+        alertname: ServingReleaseFreshnessFailed
+        exp_alerts:
+          - exp_labels:
+              job: serving-api
+              instance: api:8000
+              severity: warning
+            exp_annotations:
+              summary: Serving release failed its configured freshness checks
+      - eval_time: 5m
+        alertname: ServingReleaseFreshnessFailed
+        exp_alerts: []
+  - name: Missing manifest is visible while metrics remain available
+    interval: 1m
+    input_series:
+      - series: 'valostream_release_manifest_valid{job="serving-api", instance="api:8000"}'
+        values: '0x5'
+      - series: 'up{job="serving-api", instance="api:8000"}'
+        values: '1x5'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: ServingReleaseManifestUnavailable
+        exp_alerts:
+          - exp_labels:
+              job: serving-api
+              instance: api:8000
+              severity: critical
+            exp_annotations:
+              summary: Serving release manifest is missing or invalid
+      - eval_time: 3m
+        alertname: ServingAPIUnavailable
+        exp_alerts: []
+  - name: Scrape failure is not silently healthy
+    interval: 1m
+    input_series:
+      - series: 'up{job="serving-api", instance="api:8000"}'
+        values: '0x5'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: ServingAPIUnavailable
+        exp_alerts:
+          - exp_labels:
+              job: serving-api
+              instance: api:8000
+              severity: critical
+            exp_annotations:
+              summary: Serving API metrics endpoint is unavailable
+  - name: Healthy release does not fire
+    interval: 1m
+    input_series:
+      - series: 'up{job="serving-api", instance="api:8000"}'
+        values: '1x5'
+      - series: 'valostream_release_manifest_valid{job="serving-api", instance="api:8000"}'
+        values: '1x5'
+      - series: 'valostream_release_freshness_healthy{job="serving-api", instance="api:8000"}'
+        values: '1x5'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: ServingReleaseFreshnessFailed
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: ServingReleaseManifestUnavailable
+        exp_alerts: []

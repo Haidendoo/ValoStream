@@ -9,7 +9,7 @@ import pymysql
 
 from serving import app as api
 from serving.queries import ServingSource
-from serving.releases import Release, ReleaseState, utc_now, write_state
+from serving.releases import FreshnessPolicy, Release, ReleaseState, release_lease, utc_now, write_state
 
 
 class ServingTest(TestCase):
@@ -19,6 +19,7 @@ class ServingTest(TestCase):
         self.factory = self.stack.enter_context(patch.object(api, "get_connection"))
         self.stack.enter_context(patch.object(api, "SOURCE", ServingSource(mart_schema="release_test")))
         self.stack.enter_context(patch.object(api, "RELEASE_FILE", None))
+        self.stack.enter_context(patch.object(api, "FRESHNESS", FreshnessPolicy()))
         self.stack.enter_context(patch.object(api.log, "exception"))
         self.conn = self.factory.return_value
         self.cursor = self.conn.cursor.return_value.__enter__.return_value
@@ -152,6 +153,58 @@ class ServingTest(TestCase):
                         self.assertEqual(response.status_code, 503, response.text)
                         self.assertNotIn(str(path), response.text)
                 self.assertEqual(self.client.get("/metrics").status_code, 200)
+        self.factory.assert_not_called()
+
+    def test_request_holds_schema_lease_until_query_finishes_including_errors(self):
+        release = Release("vs_release_" + "a" * 32, "main", "abc", "vault", utc_now())
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "active.json"
+            write_state(path, ReleaseState(release, None, utc_now()))
+            for fail in (False, True):
+                def execute(*args):
+                    with self.assertRaises(BlockingIOError):
+                        with release_lease(path, release.schema, exclusive=True):
+                            self.fail("Collector acquired a request's lease")
+                    if fail:
+                        raise pymysql.OperationalError(2006, "gone away")
+
+                self.cursor.execute.side_effect = execute
+                with patch.object(api, "RELEASE_FILE", path):
+                    response = self.client.get("/spatial/couriers")
+                    self.assertEqual(response.status_code, 503 if fail else 200)
+                with release_lease(path, release.schema, exclusive=True):
+                    pass
+
+    def test_stale_events_fail_readiness_even_when_build_is_new(self):
+        release = Release("vs_release_" + "a" * 32, "main", "abc", "vault", utc_now(),
+                          {stream: "2020-01-01T00:00:00+00:00" for stream in ("interactions", "couriers")})
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "active.json"
+            write_state(path, ReleaseState(release, None, utc_now()))
+            with patch.object(api, "RELEASE_FILE", path), patch.object(api, "FRESHNESS", FreshnessPolicy(300, 600)):
+                response = self.client.get("/healthz")
+                self.assertEqual(response.status_code, 503)
+                self.assertEqual(response.json()["detail"]["freshness"]["status"], "stale")
+                self.factory.assert_not_called()
+                self.assertEqual(self.client.get("/spatial/couriers").status_code, 200)
+                metrics = self.client.get("/metrics").text
+                self.assertIn("valostream_release_freshness_healthy 0.0", metrics)
+                self.assertIn('valostream_release_event_watermark_known{stream="couriers"} 1.0', metrics)
+
+    def test_metrics_discard_old_release_samples_when_manifest_disappears(self):
+        release = Release("vs_release_" + "a" * 32, "main", "abc", "vault", utc_now())
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "active.json"
+            write_state(path, ReleaseState(release, None, utc_now()))
+            with patch.object(api, "RELEASE_FILE", path):
+                first = self.client.get("/metrics").text
+                self.assertIn("valostream_release_manifest_valid 1.0", first)
+                self.assertIn('valostream_release_event_watermark_known{stream="interactions"} 0.0', first)
+                path.unlink()
+                second = self.client.get("/metrics").text
+                self.assertIn("valostream_release_manifest_valid 0.0", second)
+                self.assertNotIn("valostream_release_build_timestamp_seconds", second)
+                self.assertNotIn("valostream_release_freshness_healthy", second)
         self.factory.assert_not_called()
 
 

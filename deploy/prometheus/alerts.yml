@@ -1,0 +1,24 @@
+groups:
+  - name: serving-releases
+    rules:
+      - alert: ServingAPIUnavailable
+        expr: up{job="serving-api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Serving API metrics endpoint is unavailable
+      - alert: ServingReleaseManifestUnavailable
+        expr: valostream_release_manifest_valid{job="serving-api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Serving release manifest is missing or invalid
+      - alert: ServingReleaseFreshnessFailed
+        expr: valostream_release_freshness_healthy{job="serving-api"} == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Serving release failed its configured freshness checks

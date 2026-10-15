@@ -10,16 +10,16 @@ from typing import Any, Dict, List, Literal, Optional
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 import h3
-from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
+from prometheus_client import CONTENT_TYPE_LATEST, CollectorRegistry, Counter, Gauge, Histogram, generate_latest
 from pydantic import BaseModel
 import pymysql
 
 if __package__:
     from .queries import ServingSource
-    from .releases import read_state
+    from .releases import FreshnessPolicy, read_state, selected_release, timestamp
 else:
     from queries import ServingSource
-    from releases import read_state
+    from releases import FreshnessPolicy, read_state, selected_release, timestamp
 
 log = logging.getLogger(__name__)
 SOURCE = ServingSource(
@@ -30,18 +30,26 @@ SOURCE = ServingSource(
 RELEASE_FILE = os.getenv("STARROCKS_RELEASE_FILE") or None
 if RELEASE_FILE and SOURCE.mart_schema:
     raise ValueError("Choose STARROCKS_RELEASE_FILE or STARROCKS_MART_SCHEMA, not both")
+FRESHNESS = FreshnessPolicy(
+    int(os.getenv("STARROCKS_MAX_BUILD_AGE_SECONDS", "0")),
+    int(os.getenv("STARROCKS_MAX_EVENT_AGE_SECONDS", "0")),
+)
+if not RELEASE_FILE and (FRESHNESS.max_build_age_seconds or FRESHNESS.max_event_age_seconds):
+    raise ValueError("Freshness limits require STARROCKS_RELEASE_FILE")
 
 REQUEST_COUNT = Counter("valostream_api_requests_total", "Serving requests", ["endpoint", "status"])
 REQUEST_LATENCY = Histogram("valostream_api_request_duration_seconds", "Serving latency", ["endpoint"])
 
 
-def get_source():
+def get_source(request: Request):
     # Resolve once per request. Fallback queries must use this same snapshot.
     if RELEASE_FILE is None:
-        return SOURCE
+        yield SOURCE
+        return
     try:
-        state = read_state(RELEASE_FILE)
-        return ServingSource(mart_schema=state.active.schema)
+        with selected_release(RELEASE_FILE) as release:
+            request.state.release = release
+            yield ServingSource(mart_schema=release.schema)
     except (OSError, ValueError, TypeError, KeyError) as error:
         log.exception("Serving release manifest unavailable")
         raise HTTPException(status_code=503, detail="Serving release unavailable") from error
@@ -80,7 +88,7 @@ async def lifespan(app):
 
 
 app = FastAPI(
-    title="ValoStream Spatial Serving API", version="1.2.0", lifespan=lifespan,
+    title="ValoStream Spatial Serving API", version="1.3.0", lifespan=lifespan,
     description="Location-aware popularity recommendations, H3 demand, and current courier positions.",
 )
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["GET"], allow_headers=["*"])
@@ -103,7 +111,36 @@ async def observe_requests(request: Request, call_next):
 
 @app.get("/metrics")
 def get_metrics():
-    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
+    # A fresh registry avoids exporting stale metadata after a manifest disappears.
+    registry = CollectorRegistry()
+
+    def gauge(name, help_text, value):
+        Gauge("valostream_" + name, help_text, registry=registry).set(value)
+
+    gauge("release_manifest_configured", "Whether the API follows a release manifest", RELEASE_FILE is not None)
+    if RELEASE_FILE is not None:
+        try:
+            release = read_state(RELEASE_FILE).active
+        except (OSError, ValueError, TypeError, KeyError):
+            gauge("release_manifest_valid", "Whether the configured manifest can be read", 0)
+        else:
+            gauge("release_manifest_valid", "Whether the configured manifest can be read", 1)
+            gauge("release_build_timestamp_seconds", "UTC timestamp of active release build completion",
+                  timestamp(release.built_at).timestamp())
+            gauge("release_freshness_healthy", "Whether configured freshness checks pass",
+                  FRESHNESS.evaluate(release)["status"] in ("ok", "unchecked"))
+            gauge("release_max_build_age_seconds", "Configured build age limit; zero disables", FRESHNESS.max_build_age_seconds)
+            gauge("release_max_event_age_seconds", "Configured event age limit; zero disables", FRESHNESS.max_event_age_seconds)
+            known = Gauge("valostream_release_event_watermark_known", "Whether a stream watermark is known",
+                          ["stream"], registry=registry)
+            events = Gauge("valostream_release_event_timestamp_seconds", "Latest event timestamp in the active release",
+                           ["stream"], registry=registry)
+            for stream in ("interactions", "couriers"):
+                value = (release.watermarks or {}).get(stream)
+                known.labels(stream).set(value is not None)
+                if value is not None:
+                    events.labels(stream).set(timestamp(value).timestamp())
+    return Response(content=generate_latest() + generate_latest(registry), media_type=CONTENT_TYPE_LATEST)
 
 
 class MerchantRecommendation(BaseModel):
@@ -142,7 +179,12 @@ class HexagonResponse(BaseModel):
 
 
 @app.get("/healthz")
-def health_check(source: ServingSource = Depends(get_source)):
+def health_check(request: Request, source: ServingSource = Depends(get_source)):
+    release = getattr(request.state, "release", None)
+    freshness = FRESHNESS.evaluate(release) if release else {"status": "unavailable"}
+    if freshness["status"] in ("stale", "unknown", "clock_skew"):
+        raise HTTPException(status_code=503, detail={"message": "Serving release freshness check failed",
+                                                    "freshness": freshness})
     try:
         # Check the active source, not just the availability of a SQL connection.
         with closing(get_connection()) as conn, conn.cursor() as cursor:
@@ -150,7 +192,7 @@ def health_check(source: ServingSource = Depends(get_source)):
                 cursor.execute(f"SELECT * FROM {table} LIMIT 0")
         return {"status": "ok", "starrocks": "connected", "lakehouse": "reachable",
                 "engine": "vectorized-olap", "source": "marts" if source.mart_schema else "vault",
-                "mart_schema": source.mart_schema}
+                "mart_schema": source.mart_schema, "freshness": freshness}
     except Exception as error:
         log.exception("Serving source readiness failed")
         raise HTTPException(status_code=503, detail="Serving data source unavailable") from error

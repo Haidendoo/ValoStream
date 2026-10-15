@@ -93,7 +93,8 @@ All models use dbt `table` materialization and rebuild on each successful run.
 They are persisted tables, not automatically refreshed materialized views.
 The optional [release runner](mart-releases.md) provides periodic rebuilds with a
 five-minute default delay after each attempt. No scheduler is installed by default
-and there is no measured freshness SLA; data is as recent as the last build.
+and there is no measured freshness SLA. Event/build age checks and release retention
+are opt-in; a new build does not imply fresh source events.
 The StarRocks adapter drops/recreates tables, so builds are not atomic publication
 of the whole model graph. Use an isolated output schema for validation. The serving
 API can opt into a completed, validated schema with `STARROCKS_MART_SCHEMA`; see
