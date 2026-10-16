@@ -1,0 +1,75 @@
+rule_files:
+  - ../../deploy/prometheus/alerts.yml
+evaluation_interval: 1m
+tests:
+  - name: Anomaly or insufficient baseline alerts and resolves
+    interval: 1m
+    input_series:
+      - series: 'valostream_quality_healthy{job="serving-api"}'
+        values: '0 0 0 0 1 1'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: StatisticalQualityCheckFailed
+        exp_alerts: []
+      - eval_time: 3m
+        alertname: StatisticalQualityCheckFailed
+        exp_alerts:
+          - exp_labels:
+              job: serving-api
+              severity: warning
+            exp_annotations:
+              summary: Daily volume check found an anomaly, insufficient baseline, or run failure
+      - eval_time: 5m
+        alertname: StatisticalQualityCheckFailed
+        exp_alerts: []
+  - name: Missing or unreadable report alerts
+    interval: 1m
+    input_series:
+      - series: 'valostream_quality_report_valid{job="serving-api"}'
+        values: '0x5'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: StatisticalQualityReportUnavailable
+        exp_alerts:
+          - exp_labels:
+              job: serving-api
+              severity: warning
+            exp_annotations:
+              summary: Daily volume report is missing or invalid
+  - name: Scheduler stops while a previous green report remains
+    interval: 1m
+    input_series:
+      - series: 'valostream_quality_window_end_timestamp_seconds{job="serving-api"}'
+        values: '0x2000'
+      - series: 'valostream_quality_healthy{job="serving-api"}'
+        values: '1x2000'
+    alert_rule_test:
+      - eval_time: 30h
+        alertname: StatisticalQualityCheckOverdue
+        exp_alerts: []
+      - eval_time: 31h
+        alertname: StatisticalQualityCheckOverdue
+        exp_alerts:
+          - exp_labels:
+              job: serving-api
+              severity: warning
+            exp_annotations:
+              summary: Daily volume monitor has not checked a recent completed day
+      - eval_time: 31h
+        alertname: StatisticalQualityCheckFailed
+        exp_alerts: []
+  - name: Disabled monitoring does not alert
+    interval: 1m
+    input_series:
+      - series: 'valostream_quality_report_configured{job="serving-api"}'
+        values: '0x5'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: StatisticalQualityReportUnavailable
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: StatisticalQualityCheckFailed
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: StatisticalQualityCheckOverdue
+        exp_alerts: []

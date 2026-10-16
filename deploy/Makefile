@@ -2,6 +2,7 @@
 .PHONY: analytics-check analytics-nessie-check quality-gate
 .PHONY: serving-test serving-check
 .PHONY: release-check
+.PHONY: statistical-monitor
 
 PYTHON ?= python3
 SCHEMA_REGISTRY_URL ?= http://localhost:8082
@@ -35,6 +36,9 @@ serving-check:
 
 release-check:
 	cd .. && PYTHONPATH=. $(PYTHON) tests/analytics/release_smoke.py
+
+statistical-monitor:
+	cd .. && $(PYTHON) -m ops.statistical_monitor --report var/quality/latest.json
 
 up:
 	docker compose up -d

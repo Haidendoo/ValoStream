@@ -461,9 +461,13 @@ Implemented PR checks in `analytics/` are deterministic and operate on small fix
 3. **Completeness & Schema:** Existing source columns have the expected types and required values, including event timestamps and `record_source`. Missing columns fail. The current sources do not contain `hash_diff`.
 4. **Consumption Correctness:** Materialized interaction facts preserve source interactions; H3 rollups conserve eligible counts per resolution. Fixture assertions also verify dwell totals and latest courier positions.
 
-Scheduled statistical checks are separate, still pending: compare daily volume on
-`main` against at least seven completed days of baseline and alert on >50%
-deviation. Such volume thresholds are not PR gates. See the
+Statistical checks are separate and implemented as an opt-in daily monitor: compare
+volume on frozen `main` against seven completed, observed baseline days and alert
+on >50% deviation. Missing baseline days are unhealthy. The Airflow DAG and
+Prometheus rules are supplied; scheduler deployment, real baseline collection, and
+external notification routing remain pending. See the
+[statistical runbook](docs/statistical-monitoring.md). Such volume thresholds are
+not PR gates. See the
 [analytics runbook](docs/analytics-quality-gate.md) for the ten persisted models,
 97 data tests, branch isolation, and current refresh/publication limitations.
 

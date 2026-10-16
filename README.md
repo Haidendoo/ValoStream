@@ -72,7 +72,7 @@ Step 4 is substantially implemented but still partial; Steps 5–6 remain ahead.
 | **1. Validation spikes** | StarRocks/Nessie branch integration and the platform choices were exercised. | Branch lifecycle spike recorded at ~49.6 ms. |
 | **2. Streaming platform** | Compose services, Kafka producers, PyFlink, Fluss and Iceberg/Nessie sinks, StarRocks and spatial API are implemented. | Walking skeleton is recorded complete. Existing end-to-end results are not a current 100k events/sec benchmark. |
 | **3. Operations** | Iceberg maintenance, concurrent-writer plan, Prometheus/Grafana setup, sizing and cost model. | Operational tier is recorded complete; production recovery/load targets still need revalidation. |
-| **4. Quality, marts and release operations** | Avro contracts for clickstream/telemetry, Schema Registry checks, 97 dbt data tests, 10 models, API serving from validated marts, refresh/publish/rollback, optional retention and freshness alerts. | Local StarRocks/Nessie/MinIO smoke tests passed, including rejecting a corrupt release. User/product CDC adapters, privacy erasure, statistical baselines, PIT materialized views and measured SLAs are not complete. |
+| **4. Quality, marts and release operations** | Avro contracts for clickstream/telemetry, Schema Registry checks, 97 dbt data tests, 10 models, API serving from validated marts, refresh/publish/rollback, optional retention/freshness alerts, and an opt-in daily volume monitor with Airflow DAG and Prometheus rules. | Local StarRocks/Nessie/MinIO smoke tests passed, including rejecting a corrupt release. User/product CDC adapters, privacy erasure, a real seven-day statistical baseline, PIT materialized views and measured SLAs are not complete. |
 
 The current API recommendations use interaction popularity and distance; they do
 not use personalized embeddings or a trained ranking model. Refresh and retention
@@ -81,8 +81,8 @@ are opt-in commands, and the release pointer coordinates processes on one host.
 ### Next steps
 
 1. **Finish Step 4 — governance and query-ready marts:** design and implement PII
-   encryption/erasure, define retention by data layer, add scheduled statistical
-   checks with a real seven-day baseline, then implement PIT/current-satellite and
+   encryption/erasure, define retention by data layer, deploy the statistical
+   monitor and collect a real seven-day baseline, then implement PIT/current-satellite and
    H3 materialized views. Measure data freshness and query latency before setting
    SLAs.
 2. **Build Step 5 — personalized recommendations:** choose one shared online/offline
@@ -122,7 +122,8 @@ are opt-in commands, and the release pointer coordinates processes on one host.
   - **Serving integration implemented:** Optional validated mart schema, current courier positions, weighted H3 aggregates, score-ordered recommendations, and source readiness checks. API tests cover both mart and raw-vault modes against StarRocks. See [serving runbook](docs/serving-marts.md).
   - **Managed mart releases implemented:** Frozen Nessie input, dbt validation, periodic rebuild loop, request-consistent API switching, and rollback using a local manifest. See [release runbook](docs/mart-releases.md).
   - **Release operations implemented:** Optional retention protects active/rollback schemas and in-flight requests; event/build freshness checks and Prometheus alert rules detect stale releases or invalid manifests.
-  - Crypto-shredding, scheduled statistical anomaly monitoring, bitemporal PIT, and distributed serving publication remain pending.
+  - **Statistical monitoring implemented (opt-in):** Daily counts on frozen `main` versus seven observed baseline days, strict >50% alerts, a daily Airflow DAG, and API/Prometheus reporting for errors, missing history, and overdue runs. See [runbook](docs/statistical-monitoring.md). Scheduler deployment, a real baseline, and external notification routing remain pending.
+  - Crypto-shredding, bitemporal PIT, and distributed serving publication remain pending.
 - [ ] **Step 5: Feature Store & Recommender Engine — planned**
   - Two-stage ranking pipeline (Qdrant ANN + Triton DCNv2) with streaming cold-start item embeddings.
 - [ ] **Step 6: Chaos & Load Testing — planned**

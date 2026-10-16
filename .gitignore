@@ -157,6 +157,7 @@ analytics/logs/
 analytics/dbt_packages/
 analytics/.user.yml
 var/releases/
+var/quality/
 env/
 venv/
 ENV/

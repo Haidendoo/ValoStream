@@ -124,7 +124,8 @@ StarRocks 4.1.4, and PyIceberg 0.12.0:
 
 This is correctness validation on tiny synthetic datasets, not a latency/load
 benchmark. Production raw-vault deduplication, bitemporal PIT, incremental refresh,
-statistical monitoring on a seven-day baseline, PII erasure, and distributed serving
+production deployment and real baseline collection for the implemented
+[statistical monitor](statistical-monitoring.md), PII erasure, and distributed serving
 publication remain pending. GitHub-hosted execution of the new workflow has not
 been observed yet.
 

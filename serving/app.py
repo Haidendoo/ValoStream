@@ -15,9 +15,11 @@ from pydantic import BaseModel
 import pymysql
 
 if __package__:
+    from .quality import read_report
     from .queries import ServingSource
     from .releases import FreshnessPolicy, read_state, selected_release, timestamp
 else:
+    from quality import read_report
     from queries import ServingSource
     from releases import FreshnessPolicy, read_state, selected_release, timestamp
 
@@ -28,6 +30,7 @@ SOURCE = ServingSource(
     mart_schema=os.getenv("STARROCKS_MART_SCHEMA") or None,
 )
 RELEASE_FILE = os.getenv("STARROCKS_RELEASE_FILE") or None
+QUALITY_REPORT_FILE = os.getenv("VALOSTREAM_QUALITY_REPORT_FILE") or None
 if RELEASE_FILE and SOURCE.mart_schema:
     raise ValueError("Choose STARROCKS_RELEASE_FILE or STARROCKS_MART_SCHEMA, not both")
 FRESHNESS = FreshnessPolicy(
@@ -118,6 +121,16 @@ def get_metrics():
         Gauge("valostream_" + name, help_text, registry=registry).set(value)
 
     gauge("release_manifest_configured", "Whether the API follows a release manifest", RELEASE_FILE is not None)
+    gauge("quality_report_configured", "Whether daily volume monitoring is configured", QUALITY_REPORT_FILE is not None)
+    if QUALITY_REPORT_FILE is not None:
+        try:
+            quality = read_report(QUALITY_REPORT_FILE)
+        except (OSError, ValueError, TypeError, KeyError, OverflowError):
+            gauge("quality_report_valid", "Whether the daily volume report can be read", 0)
+        else:
+            gauge("quality_report_valid", "Whether the daily volume report can be read", 1)
+            gauge("quality_healthy", "Whether daily volume checks have a full baseline and pass", quality["status"] == "ok")
+            gauge("quality_window_end_timestamp_seconds", "End of the last checked UTC day", quality["window_end"])
     if RELEASE_FILE is not None:
         try:
             release = read_state(RELEASE_FILE).active

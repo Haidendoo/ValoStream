@@ -1,4 +1,27 @@
 groups:
+  - name: statistical-quality
+    rules:
+      - alert: StatisticalQualityReportUnavailable
+        expr: valostream_quality_report_valid{job="serving-api"} == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Daily volume report is missing or invalid
+      - alert: StatisticalQualityCheckFailed
+        expr: valostream_quality_healthy{job="serving-api"} == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Daily volume check found an anomaly, insufficient baseline, or run failure
+      - alert: StatisticalQualityCheckOverdue
+        expr: time() - valostream_quality_window_end_timestamp_seconds{job="serving-api"} > 108000
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Daily volume monitor has not checked a recent completed day
   - name: serving-releases
     rules:
       - alert: ServingAPIUnavailable

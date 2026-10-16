@@ -3,7 +3,7 @@
 **Author:** ValoStream Engineering Team
 **Date:** 2026-09-15
 **Source:** Architecture Review (31 findings against `archi.md` at commit `eb4c50e`)
-**Status:** Steps 0–3 recorded complete; Step 4 contracts, deterministic Nessie/dbt gate, initial marts, local releases, retention, and freshness checks implemented but partial; privacy erasure, statistical baselines, PIT, trained personalization, and load/chaos validation remain pending. Overall estimate: about 60–62% by roadmap effort.
+**Status:** Steps 0–3 recorded complete; Step 4 contracts, deterministic Nessie/dbt gate, initial marts, local releases, retention, freshness checks, and opt-in statistical monitoring implemented but partial; privacy erasure, deployed scheduling with real statistical baselines, PIT, trained personalization, and load/chaos validation remain pending. Overall estimate: about 60–62% by roadmap effort.
 
 ---
 
@@ -14,14 +14,14 @@
 | Status | Steps | Meaning |
 | --- | --- | --- |
 | Complete (recorded in this plan) | 0–3 | Architecture decisions, validation spikes, walking skeleton, and operational tier. Production-scale recovery and load targets still require fresh evidence. |
-| Partially complete | 4 | Contracts, deterministic quality gate, initial marts, API integration, and opt-in local release operations are implemented. Privacy erasure, scheduled statistical baselines, PIT/materialized views, and measured SLAs are unfinished. |
+| Partially complete | 4 | Contracts, deterministic quality gate, initial marts, API integration, opt-in local release operations, and daily statistical monitor/DAG/alert rules are implemented. Privacy erasure, scheduler rollout with a real seven-day baseline, PIT/materialized views, and measured SLAs are unfinished. |
 | Planned | 5 | Shared feature definitions, point-in-time training, streaming embeddings, personalized retrieval/ranking, and circuit-breaker tuning. |
 | Planned | 6 | Parallel benchmark producer, 100k events/sec run, chaos testing, recovery validation, and performance report. |
 
 ### Recommended implementation order
 
 1. Close Step 4 governance gaps: encryption/erasure and retention policy, then
-   scheduled anomaly checks with a seven-day baseline.
+   deployment of the implemented anomaly monitor with a real seven-day baseline.
 2. Add and benchmark PIT/current-satellite/H3 serving models; publish measured
    freshness and query latency targets.
 3. Design the feature store and training/serving contract before implementing
@@ -891,8 +891,9 @@ Strategy: Crypto-Shredding
 **Deliverables:**
 - [x] Updated §6.2 separating deterministic vs. statistical tests
 - [x] dbt test suite for PR gate (97 deterministic tests; native and real Iceberg fixture validation)
-- [ ] Airflow DAG for scheduled statistical monitors on `main`
-- [ ] Alert configuration for anomaly detection
+- [x] Airflow DAG for scheduled statistical monitors on `main` (opt-in; deployment pending)
+- [x] Prometheus alert rules for anomaly detection, insufficient history, report errors, and overdue runs
+- [ ] Deployed scheduler, seven days of real baseline history, and external notification routing
 
 **Acceptance criteria:**
 - PR gate tests run on thin branch data without false positives
@@ -901,7 +902,11 @@ Strategy: Crypto-Shredding
 Implemented gate: [`docs/analytics-quality-gate.md`](docs/analytics-quality-gate.md).
 The current raw ingestion repeats hub/link rows, so uniqueness is checked after
 normalization; conflicting key mappings still fail. Raw-vault uniqueness remains
-an ingestion follow-up. Statistical monitors and their baseline are not implemented.
+an ingestion follow-up. The [statistical monitor](docs/statistical-monitoring.md)
+compares a completed UTC day against seven observed baseline days on frozen `main`;
+missing baseline days are explicitly unhealthy. Runtime and alert behavior are
+testable with isolated fixtures; real baseline collection and operational rollout
+remain pending. This monitor covers daily volume, not distribution-shape drift.
 
 ---
 
