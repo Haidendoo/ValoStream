@@ -77,6 +77,21 @@ with patch.dict(sys.modules, {"ops.statistical_monitor": monitor}), \
             pass
         else:
             raise AssertionError(f"{status} was silently successful")
+    # Exercise the provider boundary, including context-to-keyword injection.
+    # Clone for each attempt, as a real task execution receives a fresh operator.
+    # A non-UTC context must still select the same completed UTC calendar day.
+    monitor.run_monitor.return_value = {"status": "ok"}
+    end = scheduled_ends[0].in_timezone("America/Los_Angeles")
+    task.prepare_for_execution().execute(context={"data_interval_end": end})
+    assert monitor.run_monitor.call_args.args == (
+        scheduled_ends[0].date() - timedelta(days=1), "/tmp/quality.json", "vault")
+    monitor.run_monitor.return_value = {"status": "anomaly"}
+    try:
+        task.prepare_for_execution().execute(context={"data_interval_end": end})
+    except AirflowException:
+        pass
+    else:
+        raise AssertionError("PythonOperator swallowed an anomaly")
     monitor.run_monitor.side_effect = RuntimeError("database unavailable")
     try:
         task.python_callable(scheduled_ends[0])
@@ -84,4 +99,4 @@ with patch.dict(sys.modules, {"ops.statistical_monitor": monitor}), \
         pass
     else:
         raise AssertionError("Runtime failure was silently successful")
-print("Airflow 3.3.2 DAG parse, timetable boundaries, retry window, and failure propagation passed.")
+print("Airflow 3.3.2 DAG parse, timetable boundaries, retry window, operator context, and failure propagation passed.")

@@ -134,8 +134,11 @@ the declared Airflow runtime.
 
 Local validation on 2026-10-16: 50 analytics tests and 20 serving tests passed;
 the Iceberg/StarRocks smoke test and both Prometheus rule suites passed. After the
-Airflow migration, the DAG checks passed under 3.3.2 and cover parsing, SDK-to-scheduler
-serialization, calendar/year
-boundaries, retry window selection, missing manual-run intervals, and failure
-propagation. This is correctness evidence on small
-fixtures; no production baseline or throughput benchmark is claimed.
+Airflow migration, the DAG checks passed under 3.3.2 and cover parsing,
+SDK-to-scheduler serialization, calendar/year boundaries, retry window selection,
+missing manual-run intervals, and failure propagation. Recheck also verified a
+clean installation with `pip check` and standard provider 1.19.0, plus context
+injection through `PythonOperator.execute`, including conversion from a non-UTC
+context. The operator checks stub database access and run outside the Task Runner;
+deployment and a full scheduler/worker run remain unverified. This is correctness
+evidence on small fixtures; no production baseline or throughput benchmark is claimed.
