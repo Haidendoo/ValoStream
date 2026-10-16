@@ -52,9 +52,17 @@ aggregated counts, without subject identifiers or database credentials.
 
 ## Schedule with Airflow
 
-`airflow/dags/dag_statistical_monitors.py` targets **Airflow 2.11.0 / Python 3.11**.
-The dedicated CI job validates this compatibility target using the upstream
-constraints file. Keep Airflow separate from the dbt Python environment.
+`airflow/dags/dag_statistical_monitors.py` targets **Airflow 3.3.2 / Python 3.11**.
+The DAG uses `airflow.sdk.DAG` and the standard provider's `PythonOperator`.
+Install the runtime in a separate Python 3.11 environment from the repository root:
+
+```bash
+python -m pip install -r airflow/requirements.txt
+```
+
+This pins Airflow and resolves the standard provider, PyMySQL, and Requests with
+the upstream 3.3.2/Python 3.11 constraints. The dedicated CI job uses the same file.
+Keep Airflow separate from the dbt Python environment.
 
 1. Make the repository available on the Airflow worker's `PYTHONPATH`; deploy the
    DAG file to its configured DAG folder. Workers need `pymysql` and `requests` plus
@@ -68,13 +76,23 @@ constraints file. Keep Airflow separate from the dbt Python environment.
 4. Unpause `valostream_statistical_monitors` after configuring the worker. It runs
    at **02:00 UTC daily (09:00 Asia/Bangkok)**, with two ten-minute retries, one active
    run, and a fifteen-minute task timeout. The target comes from the scheduled
-   interval end, so a delayed retry checks the original date. Catchup is disabled.
+   interval end, so a delayed retry checks the original date. An explicit UTC
+   `CronDataIntervalTimetable` preserves this behavior independently of the
+   installation's cron defaults. Catchup is disabled.
 
 The DAG starts paused and is not deployed by the default Compose stack. Running
 the checks does not itself install or start Airflow. Follow Airflow's
-[data interval semantics](https://airflow.apache.org/docs/apache-airflow/2.11.0/core-concepts/dag-run.html)
-when triggering historical runs. Keep one writer per live report; run manual
-backfills with separate output paths.
+[data interval semantics](https://airflow.apache.org/docs/apache-airflow/3.3.2/core-concepts/dag-run.html)
+when triggering historical runs. Airflow 3 manual runs without a data interval
+fail with an explicit instruction to use the CLI with `--date`; the task never
+guesses a window from the worker's clock. Keep one writer per live report; run
+manual backfills with separate output paths.
+
+Deployment uses the Airflow 3 API server, scheduler, and DAG processor. This
+repository has no deployed Airflow 2 metadata database to migrate. The existing
+monitor queries StarRocks directly and does not access Airflow's metadata database.
+See the [upstream Airflow 3 migration guide](https://airflow.apache.org/docs/apache-airflow/3.3.2/installation/upgrading_to_airflow3.html)
+for changes to an existing external Airflow installation.
 
 ## Metrics and alerts
 
@@ -115,6 +133,9 @@ of a production baseline. CI also checks Prometheus alerts and parses the DAG un
 the declared Airflow runtime.
 
 Local validation on 2026-10-16: 50 analytics tests and 20 serving tests passed;
-the Iceberg/StarRocks smoke test, both Prometheus rule suites, and the Airflow 2.11
-DAG parse/schedule/failure checks passed. This is correctness evidence on small
+the Iceberg/StarRocks smoke test and both Prometheus rule suites passed. After the
+Airflow migration, the DAG checks passed under 3.3.2 and cover parsing, SDK-to-scheduler
+serialization, calendar/year
+boundaries, retry window selection, missing manual-run intervals, and failure
+propagation. This is correctness evidence on small
 fixtures; no production baseline or throughput benchmark is claimed.

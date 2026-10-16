@@ -4,13 +4,15 @@ from datetime import timedelta
 import json
 import os
 
-from airflow import DAG
+from airflow.sdk import DAG, CronDataIntervalTimetable
 from airflow.exceptions import AirflowException
-from airflow.operators.python import PythonOperator
+from airflow.providers.standard.operators.python import PythonOperator
 import pendulum
 
 
-def check_daily_volume(data_interval_end):
+def check_daily_volume(data_interval_end=None):
+    if data_interval_end is None:
+        raise AirflowException("A scheduled data interval is required; use the monitor CLI for an explicit date")
     # Import at task execution, avoiding DB dependencies during scheduler DAG parsing.
     from ops.statistical_monitor import run_monitor
 
@@ -25,7 +27,9 @@ def check_daily_volume(data_interval_end):
 with DAG(
     dag_id="valostream_statistical_monitors",
     start_date=pendulum.datetime(2026, 10, 1, tz="UTC"),
-    schedule="0 2 * * *",  # Two hours for late arrivals after the previous UTC day.
+    # Keep a real data interval regardless of the installation's cron defaults.
+    # The run at 02:00 UTC checks the previous completed UTC calendar day.
+    schedule=CronDataIntervalTimetable("0 2 * * *", timezone="UTC"),
     catchup=False,
     max_active_runs=1,
     is_paused_upon_creation=True,
